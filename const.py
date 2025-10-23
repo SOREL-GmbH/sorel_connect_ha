@@ -6,12 +6,15 @@ CONF_BROKER_PORT = "broker_port"
 CONF_BROKER_USERNAME = "broker_username"
 CONF_BROKER_PASSWORD = "broker_password"
 CONF_BROKER_TLS = "broker_tls"
-CONF_TOPIC_PREFIX = "topic_prefix"  # z.B. "vendor"
-CONF_META_BASEURL = "meta_baseurl"  # z.B. "https://meta.example.com"
+CONF_TOPIC_PREFIX = "topic_prefix"  # e.g. "vendor"
 CONF_AUTO_ONBOARD = "auto_onboard"  # bool
+CONF_API_SERVER = "api_server"  # e.g. "connect.sorel.de"
+CONF_API_URL = "api_url"  # e.g. "/api/public/{organizationId}/device/{deviceEnumId}/metadata?language=en"
 
 DEFAULT_PORT = 1883
 DEFAULT_PREFIX = "vendor"
-DISCOVERY_PREFIX = "homeassistant"
+DEFAULT_API_SERVER = "connect.sorel.de"
+DEFAULT_API_URL = "/api/public/{organizationId}/device/{deviceEnumId}/metadata?language=en"
 
 SIGNAL_NEW_DEVICE = f"{DOMAIN}_new_device"
+SIGNAL_DP_UPDATE = "sorel_dp_update"

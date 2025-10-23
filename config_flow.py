@@ -9,13 +9,16 @@ from .const import (
     CONF_MODE,
     CONF_BROKER_TLS,
     CONF_TOPIC_PREFIX,
-    CONF_META_BASEURL,
     CONF_AUTO_ONBOARD,
+    CONF_API_SERVER,
+    CONF_API_URL,
     DEFAULT_PORT,
     DEFAULT_PREFIX,
+    DEFAULT_API_SERVER,
+    DEFAULT_API_URL,
 )
 
-# Benutzer-Dialog (Step 1)
+# User configuration schema
 DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST, default="mosquitto"): str,
@@ -23,14 +26,15 @@ DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_USERNAME, default=""): str,
         vol.Optional(CONF_PASSWORD, default=""): str,
         vol.Optional(CONF_BROKER_TLS, default=False): bool,
-        vol.Required(CONF_META_BASEURL, default="http://meta:8080"): str,
         vol.Required(CONF_TOPIC_PREFIX, default=DEFAULT_PREFIX): str,
         vol.Required(CONF_AUTO_ONBOARD, default=True): bool,
+        vol.Required(CONF_API_SERVER, default=DEFAULT_API_SERVER): str,
+        vol.Required(CONF_API_URL, default=DEFAULT_API_URL): str,
     }
 )
 
 
-class SorleConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+class SorelConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for the Integration."""
 
     VERSION = 1
@@ -39,13 +43,13 @@ class SorleConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # einfache Validierung: Broker-Host darf nicht leer sein
+            # Basic validation: broker host must not be empty
             if not user_input[CONF_HOST]:
                 errors["base"] = "invalid_host"
             else:
-                # Wenn alles passt → ConfigEntry anlegen
+                # Create config entry if validation passes
                 return self.async_create_entry(
-                    title=f"Sorle Connect ({user_input[CONF_HOST]}:{user_input[CONF_PORT]})",
+                    title=f"Sorel Connect ({user_input[CONF_HOST]}:{user_input[CONF_PORT]})",
                     data=user_input,
                 )
 
@@ -56,10 +60,10 @@ class SorleConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return SorleConnectOptionsFlowHandler(config_entry)
+        return SorelConnectOptionsFlowHandler(config_entry)
 
 
-class SorleConnectOptionsFlowHandler(config_entries.OptionsFlow):
+class SorelConnectOptionsFlowHandler(config_entries.OptionsFlow):
     """Handle options flow for adjusting settings."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:

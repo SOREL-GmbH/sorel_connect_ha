@@ -1,0 +1,6 @@
+{
+  "name": "Sorel Connect",
+  "render_readme": true,
+  "filename": "sorel_connect",
+  "homeassistant": "2023.1.0"
+}

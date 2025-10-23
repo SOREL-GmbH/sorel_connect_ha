@@ -8,15 +8,16 @@ from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWO
 from .const import (
     DOMAIN,
     CONF_BROKER_TLS,
-    CONF_META_BASEURL,
     CONF_TOPIC_PREFIX,
     CONF_AUTO_ONBOARD,
+    CONF_API_SERVER,
+    CONF_API_URL,
 )
 from .mqtt_gateway import MqttGateway
 from .meta_client import MetaClient
 from .coordinator import Coordinator
 
-PLATFORMS = [Platform.SENSOR]  # später LIGHT, SWITCH, NUMBER, ...
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR] 
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -30,14 +31,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = data.get(CONF_USERNAME) or None
     password = data.get(CONF_PASSWORD) or None
     tls = bool(data.get(CONF_BROKER_TLS, False))
-    meta_base = data.get(CONF_META_BASEURL)
+    api_server = data.get(CONF_API_SERVER)
+    api_url_template = data.get(CONF_API_URL)
     topic_prefix = data.get(CONF_TOPIC_PREFIX, "vendor")
     auto_onboard = bool(data.get(CONF_AUTO_ONBOARD, True))
 
-    _LOGGER.debug("-INIT 0/4: Setting up %s: host=%s port=%s tls=%s meta=%s prefix=%s auto=%s",
-                  DOMAIN, host, port, tls, meta_base, topic_prefix, auto_onboard)
+    _LOGGER.debug("-INIT 0/4: Setting up %s: host=%s port=%s tls=%s api_server=%s api_url=%s prefix=%s auto=%s",
+                  DOMAIN, host, port, tls, api_server, api_url_template, topic_prefix, auto_onboard)
 
-    # 1) MQTT verbinden (mit sauberem Retry, falls offline)
+    # 1) Connect to MQTT broker (with clean retry if offline)
     try:
         async def on_msg(topic: str, payload: bytes):
             await hass.data[DOMAIN]["coordinator"].handle_message(topic, payload)
@@ -50,27 +52,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             tls_enabled=tls,
             on_message=on_msg
         )
-        await gw.connect()  # wirft bei Nichterreichbarkeit
+        await gw.connect()  # Raises exception if unreachable
 
         _LOGGER.debug("-INIT 1/4: MQTT connected")
     except Exception as err:
         _LOGGER.exception("-INIT 1/4: MQTT connect failed to %s:%s", host, port)
         raise ConfigEntryNotReady from err
 
-    # 2) Metadaten-Client (nutze HA-Session)
+    # 2) Initialize metadata client (use HA session)
     try:
         from homeassistant.helpers import aiohttp_client
         session = aiohttp_client.async_get_clientsession(hass)
-        meta = MetaClient(meta_base, session)
-        # Optional: schnelle Probe, ob Server antwortet:
-        # await meta.get_capabilities("ping")  # falls deine API sowas hat
-        _LOGGER.debug("-INIT 2/4: Meta client initialized for %s", meta_base)
+        meta = MetaClient(api_server, api_url_template, session)
+        _LOGGER.debug("-INIT 2/4: Meta client initialized for %s%s", api_server, api_url_template)
     except Exception as err:
         _LOGGER.exception("-INIT 2/4: Meta client init/healthcheck failed")
         gw.stop()
         raise ConfigEntryNotReady from err
 
-    # 3) Coordinator starten
+    # 3) Start coordinator
     try:
         coord = Coordinator(
             hass=hass,
@@ -86,7 +86,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         gw.stop()
         raise ConfigEntryNotReady from err
 
-    # 4) State ablegen + Reload unterstützen
+    # 4) Store state and support reload
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN] = {
         "mqtt": gw,
@@ -108,7 +108,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return True
     try:
         data["mqtt"].stop()
-    except Exception:  # defensiv
+    except Exception:  # Defensive
         _LOGGER.debug("mqtt.stop() ignored exception", exc_info=True)
     hass.data.pop(DOMAIN, None)
 
