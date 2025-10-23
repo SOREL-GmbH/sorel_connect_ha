@@ -31,6 +31,17 @@ If your device works with the official Sorel Connect mobile app or web interface
 
 - Home Assistant Core 2023.1 or later
 - MQTT broker (e.g., Mosquitto) accessible to your Sorel devices
+
+   **Authentication is required for Sorel devices to connect to the MQTT broker.**
+   Make sure to add users for your Sorel devices and the Home Assistant integration.
+
+   If using the Mosquitto broker add-on, follow these steps:
+   1. Stop the broker if it's running
+   2. Go to **Mosquitto broker** → **Konfiguration**
+   3. Add a users for your Sorel devices
+   4. Add a user for Home Assistant integration
+   5. Save the configuration
+   6. Start the broker
 - Sorel Smart device compatible with Sorel Connect
 - **Internet connection required**:
   - **First-time setup**: Internet access is mandatory for initial metadata retrieval from the Sorel Connect metadata API
@@ -42,12 +53,11 @@ If your device works with the official Sorel Connect mobile app or web interface
 ### HACS (Recommended)
 
 1. Open HACS in your Home Assistant instance
-2. Click on "Integrations"
-3. Click the three dots in the top right corner
-4. Select "Custom repositories"
-5. Add `https://github.com/SorelHaDev/sorel_connect` as repository
-6. Select "Integration" as category
-7. Click "Add"
+2. Click the three dots in the top right corner
+3. Select "Custom repositories"
+4. Add `https://github.com/SorelHaDev/sorel_connect` as repository
+5. Select "Integration" as category
+6. Click "Add"
 8. Click "Install" on the Sorel Connect card
 9. Restart Home Assistant
 
@@ -239,7 +249,7 @@ If you encounter issues with stale or incorrect metadata, you can manually clear
 
 1. Install the **File Editor** add-on from the Add-on Store (if not already installed)
 2. Open File Editor from the sidebar
-3. Navigate to `/config/sorel_meta_cache/`
+3. Navigate to `/sorel_meta_cache`
 4. Delete the problematic metadata files (named like `0000_5001.json` where format is `{oem_id}_{device_id}.json`)
    - To clear all metadata: delete all `.json` files in the directory
    - To clear specific device: delete only that device's file
