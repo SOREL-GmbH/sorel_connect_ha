@@ -60,7 +60,7 @@ class Coordinator:
             async_dispatcher_send(self.hass, SIGNAL_NEW_DEVICE, pt)
 
         # Attempt to extract register value
-        address, value = self._extract_register(topic, payload, pt)
+        address, value = self._extract_register(payload, pt)
         if address is not None and value is not None:
             _LOGGER.debug("Extracted register from topic %s: address=%s, value=%s", topic, address, value)
             self.update_register(pt.device_key, address, value)
@@ -229,77 +229,46 @@ class Coordinator:
 
     # --- Helper Functions -----------------------------------------------------
 
-    def _extract_register(self, topic: str, payload: bytes, pt: ParsedTopic):
+    def _extract_register(self, payload: bytes, pt: ParsedTopic):
         """
-        Attempts to extract address + value from topic/payload.
-        Heuristics:
-        1. JSON with {"address":X,"value":Y}
-        2. JSON with {"value":Y} + address in topic (last or second-to-last segments)
-        3. "addr=value" plain text
-        4. Only number (value) + address from topic
+        Extracts register address and value from topic and payload.
+        Address comes from ParsedTopic.address (topic segment 8).
+        Value is numeric, either in JSON {"value": X} or plain text.
         """
-        text = ""
+        # 1. Get address from parsed topic (segment 8)
+        address = None
+        try:
+            address = int(pt.address)
+        except (ValueError, AttributeError) as e:
+            _LOGGER.debug("Failed to extract address from ParsedTopic.address='%s': %s", getattr(pt, 'address', None), e)
+            return None, None
+
+        # 2. Parse value from payload
+        value = None
         try:
             text = payload.decode("utf-8", errors="ignore").strip()
-        except Exception:
-            return None, None
 
-        address = None
-        value = None
-
-        # Extract numeric candidates from topic
-        parts = topic.split("/")
-        # Look for segments that look like numbers (second-to-last might be address)
-        numeric_parts = [p for p in parts if p.isdigit()]
-
-        # 1) JSON format
-        if text.startswith("{"):
-            try:
-                obj = json.loads(text)
-                if isinstance(obj, dict):
-                    value = obj.get("value")
-                    address = obj.get("address")
-                    if address is None and numeric_parts:
-                        # Heuristic: use largest number as address if value is present
-                        try:
-                            address = int(max(numeric_parts, key=lambda x: len(x)))
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        # 2) Plain "addr=value" format
-        if value is None and "=" in text:
-            left, right = text.split("=", 1)
-            if left.isdigit():
+            # Try JSON format: {"value": 123}
+            if text.startswith("{"):
                 try:
-                    address = int(left)
-                    value = int(right)
-                except Exception:
+                    obj = json.loads(text)
+                    if isinstance(obj, dict) and "value" in obj:
+                        value = int(obj["value"])
+                except (json.JSONDecodeError, ValueError, KeyError):
                     pass
 
-        # 3) Only number (value) format
-        if value is None and text.isdigit():
-            try:
-                value = int(text)
-                # Extract address from topic if available
-                if address is None and numeric_parts:
-                    try:
-                        address = int(max(numeric_parts, key=lambda x: len(x)))
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        # 4) Attributes in ParsedTopic (if implemented)
-        for attr in ("register", "register_address", "address"):
-            if address is None and hasattr(pt, attr):
+            # Try plain numeric
+            if value is None:
                 try:
-                    candidate = int(getattr(pt, attr))
-                    address = candidate
-                except Exception:
+                    value = int(text)
+                except ValueError:
                     pass
 
-        if address is None or value is None:
+        except Exception as e:
+            _LOGGER.debug("Failed to parse value from payload: %s", e)
+
+        if value is None:
+            _LOGGER.debug("Could not extract numeric value from payload: %s", payload.decode('utf-8', errors='ignore')[:100])
             return None, None
+
         return address, value
