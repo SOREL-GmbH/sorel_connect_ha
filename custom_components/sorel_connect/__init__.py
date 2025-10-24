@@ -8,7 +8,6 @@ from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWO
 from .const import (
     DOMAIN,
     CONF_BROKER_TLS,
-    CONF_AUTO_ONBOARD,
     CONF_API_SERVER,
     CONF_API_URL,
 )
@@ -32,10 +31,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     tls = bool(data.get(CONF_BROKER_TLS, False))
     api_server = data.get(CONF_API_SERVER)
     api_url_template = data.get(CONF_API_URL)
-    auto_onboard = bool(data.get(CONF_AUTO_ONBOARD, True))
 
-    _LOGGER.debug("-INIT 0/4: Setting up %s: host=%s port=%s tls=%s api_server=%s api_url=%s auto=%s",
-                  DOMAIN, host, port, tls, api_server, api_url_template, auto_onboard)
+    _LOGGER.debug("-INIT 0/4: Setting up %s: host=%s port=%s tls=%s api_server=%s api_url=%s",
+                  DOMAIN, host, port, tls, api_server, api_url_template)
 
     # 1) Connect to MQTT broker (with clean retry if offline)
     try:
@@ -74,7 +72,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass=hass,
             mqtt_gw=gw,
             meta_client=meta,
-            auto_onboard=auto_onboard,
         )
         await coord.start()
         _LOGGER.debug("-INIT 3/4: Coordinator started")

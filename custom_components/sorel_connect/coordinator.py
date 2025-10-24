@@ -14,11 +14,10 @@ _LOGGER = logging.getLogger(__name__)
 STALE_REGISTER_MAX_AGE = 10.0  # Maximum age in seconds for related registers to be considered fresh
 
 class Coordinator:
-    def __init__(self, hass: HomeAssistant, mqtt_gw, meta_client, auto_onboard: bool):
+    def __init__(self, hass: HomeAssistant, mqtt_gw, meta_client):
         self.hass = hass
         self.mqtt = mqtt_gw
         self.meta = meta_client
-        self.auto = auto_onboard
         self._known_devices: Set[str] = set()
 
         # Register storage: device_key -> { address: (value, timestamp) }

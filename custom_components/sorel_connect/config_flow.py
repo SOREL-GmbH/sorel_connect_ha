@@ -8,7 +8,6 @@ from .const import (
     DOMAIN,
     CONF_MODE,
     CONF_BROKER_TLS,
-    CONF_AUTO_ONBOARD,
     CONF_API_SERVER,
     CONF_API_URL,
     DEFAULT_PORT,
@@ -24,7 +23,6 @@ DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_USERNAME, default=""): str,
         vol.Optional(CONF_PASSWORD, default=""): str,
         vol.Optional(CONF_BROKER_TLS, default=False): bool,
-        vol.Required(CONF_AUTO_ONBOARD, default=True): bool,
         vol.Required(CONF_API_SERVER, default=DEFAULT_API_SERVER): str,
         vol.Required(CONF_API_URL, default=DEFAULT_API_URL): str,
     }
@@ -71,14 +69,7 @@ class SorelConnectOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        options_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_AUTO_ONBOARD,
-                    default=self.config_entry.data.get(CONF_AUTO_ONBOARD, True),
-                ): bool,
-            }
-        )
+        options_schema = vol.Schema({})
 
         return self.async_show_form(
             step_id="init", data_schema=options_schema, errors=errors

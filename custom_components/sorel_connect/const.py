@@ -6,7 +6,6 @@ CONF_BROKER_PORT = "broker_port"
 CONF_BROKER_USERNAME = "broker_username"
 CONF_BROKER_PASSWORD = "broker_password"
 CONF_BROKER_TLS = "broker_tls"
-CONF_AUTO_ONBOARD = "auto_onboard"  # bool
 CONF_API_SERVER = "api_server"  # e.g. "connect.sorel.de"
 CONF_API_URL = "api_url"  # e.g. "/api/public/{organizationId}/device/{deviceEnumId}/metadata?language=en"
 
