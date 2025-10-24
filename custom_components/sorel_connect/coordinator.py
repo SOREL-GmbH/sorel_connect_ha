@@ -62,7 +62,10 @@ class Coordinator:
         # Attempt to extract register value
         address, value = self._extract_register(topic, payload, pt)
         if address is not None and value is not None:
+            _LOGGER.debug("Extracted register from topic %s: address=%s, value=%s", topic, address, value)
             self.update_register(pt.device_key, address, value)
+        else:
+            _LOGGER.debug("Failed to extract register from topic %s, payload=%s", topic, payload.decode('utf-8', errors='ignore')[:100])
 
     # --- Datapoint Management -------------------------------------------------
 
@@ -98,9 +101,12 @@ class Coordinator:
     def update_register(self, device_key: str, address: int, value: int):
         now = time.time()
         self._registers[device_key][address] = (value & 0xFFFF, now)
+        _LOGGER.debug("Register updated for device %s: address=%s, value=%s (0x%04X)", device_key, address, value, value & 0xFFFF)
 
         # Check datapoints linearly (optimization possible later)
-        for dp in self._datapoints.get(device_key, []):
+        datapoints = self._datapoints.get(device_key, [])
+        _LOGGER.debug("Checking %d datapoints for device %s against register address %s", len(datapoints), device_key, address)
+        for dp in datapoints:
             start = int(dp.get("address", -1))
             if start < 0:
                 continue
@@ -110,11 +116,16 @@ class Coordinator:
             reg_needed = (length_bytes + 1) // 2
             if not (start <= address < start + reg_needed):
                 continue
+            # Address matches this datapoint's range
+            _LOGGER.debug("Address %s matches datapoint '%s' (start=%s, registers=%s, bytes=%s, type=%s)",
+                         address, dp.get("name", "?"), start, reg_needed, length_bytes, dp.get("type", "?"))
             decoded = self._try_decode_dp(device_key, dp, start, reg_needed, length_bytes)
             if decoded is not None:
                 prev = self._dp_value_cache[device_key].get(start)
                 if decoded != prev:
                     self._dp_value_cache[device_key][start] = decoded
+                    _LOGGER.debug("Dispatching SIGNAL_DP_UPDATE for device=%s, address=%s, value=%s (prev=%s)",
+                                 device_key, start, decoded, prev)
                     async_dispatcher_send(
                         self.hass,
                         SIGNAL_DP_UPDATE,
@@ -122,6 +133,8 @@ class Coordinator:
                         start,
                         decoded
                     )
+                else:
+                    _LOGGER.debug("DP '%s' value unchanged (%s), skipping signal dispatch", dp.get("name", "?"), decoded)
 
     def _try_decode_dp(self, device_key: str, dp: dict, start: int, reg_count: int, length_bytes: int):
         regs = self._registers.get(device_key, {})
@@ -131,9 +144,13 @@ class Coordinator:
             a = start + off
             item = regs.get(a)
             if item is None:
+                _LOGGER.debug("Cannot decode DP '%s': missing register at address %s (need %s registers starting at %s)",
+                             dp.get("name", "?"), a, reg_count, start)
                 return None
             val, ts = item
             if now - ts > STALE_REGISTER_MAX_AGE:
+                _LOGGER.debug("Cannot decode DP '%s': register at address %s is stale (%.1fs old, max %s)",
+                             dp.get("name", "?"), a, now - ts, STALE_REGISTER_MAX_AGE)
                 return None
             words.append(val)
 
@@ -163,9 +180,13 @@ class Coordinator:
                 import struct
                 value = struct.unpack(">f", raw_bytes[:4])[0]
             elif dtype in ("bool", "boolean"):
-                return bool(raw_bytes[0] & 0x01)
+                decoded_bool = bool(raw_bytes[0] & 0x01)
+                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): value=%s", dp.get("name", "?"), dtype, decoded_bool)
+                return decoded_bool
             elif dtype.startswith("str") or dtype.startswith("char"):
-                return raw_bytes.decode("utf-8", errors="ignore").rstrip("\x00")
+                decoded_str = raw_bytes.decode("utf-8", errors="ignore").rstrip("\x00")
+                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): value='%s'", dp.get("name", "?"), dtype, decoded_str)
+                return decoded_str
 
             if value is not None:
 
@@ -181,7 +202,10 @@ class Coordinator:
                         if isinstance(fmt, dict):
                             value_str = str(value)
                             if value_str in fmt:
-                                return fmt[value_str] # return formatted string
+                                formatted_value = fmt[value_str]
+                                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): raw=%s, formatted='%s'",
+                                             dp.get("name", "?"), dtype, value, formatted_value)
+                                return formatted_value # return formatted string
                             else:
                                 _LOGGER.warning(f"Value '{value_str}' not found in format mapping for DP '{dp.get('name')}'. Available keys: {list(fmt.keys())}. Returning raw value.")
                         else:
@@ -192,13 +216,15 @@ class Coordinator:
                 # if value < dp.get("minValue") or value > dp.get("maxValue"):
                 #     return None
 
+                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): value=%s", dp.get("name", "?"), dtype, value)
                 return value
 
             # Fallback to hex representation
             _LOGGER.warning(f"Unknown data type: {dtype}, raw bytes: {raw_bytes.hex()}")
             return raw_bytes.hex()
 
-        except Exception:
+        except Exception as e:
+            _LOGGER.warning("Decoding failed for DP '%s' (type=%s): %s", dp.get("name", "?"), dtype, e)
             return None
 
     # --- Helper Functions -----------------------------------------------------

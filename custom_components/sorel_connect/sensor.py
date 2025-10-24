@@ -66,10 +66,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     @callback
     async def _on_new_device(pt: ParsedTopic):
+        _LOGGER.debug("Received SIGNAL_NEW_DEVICE: device_key=%s, device_name=%s, device_id=%s",
+                     pt.device_key, pt.device_name, pt.device_id)
         coordinator = hass.data[DOMAIN]["coordinator"]
 
         # Get metadata from coordinator (already fetched during discovery)
         datapoints = coordinator._datapoints.get(pt.device_key, [])
+        _LOGGER.debug("Device %s has %d datapoints in metadata", pt.device_key, len(datapoints))
 
         # Store references for later datapoint sensor creation
         hass.data[DOMAIN]["meta_datapoints"][pt.device_key] = datapoints
@@ -81,6 +84,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             OemIdSensor(pt),
             NetworkIdSensor(pt),
         ]
+        _LOGGER.info("Creating %d diagnostic sensors for device %s (%s)", len(entities), pt.device_key, pt.device_name)
         async_add_entities(entities, update_before_add=False)
 
     # Dispatcher for new devices
@@ -90,24 +94,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # One-time dispatcher for DP updates -> creates sensor on first value
     @callback
     def _on_dp_first_value(device_key, address, value):
+        _LOGGER.debug("Received SIGNAL_DP_UPDATE: device=%s, address=%s, value=%s", device_key, address, value)
         if value is None:
+            _LOGGER.debug("Ignoring DP update with None value for device=%s, address=%s", device_key, address)
             return  # Ignore until real value arrives
         key = f"{device_key}:{address}"
         dp_sensors = hass.data[DOMAIN]["dp_sensors"]
         if key in dp_sensors:
+            _LOGGER.debug("Sensor already exists for %s, skipping creation", key)
             return  # Sensor already exists, its own handler will take care of it
         pt = hass.data[DOMAIN]["parsed_topics"].get(device_key)
         if not pt:
+            _LOGGER.warning("Device %s not fully registered yet, cannot create sensor for address %s", device_key, address)
             return  # Device not fully registered yet
 
         # Find metadata for this datapoint
         dps_meta = hass.data[DOMAIN]["meta_datapoints"].get(device_key, [])
         dp_meta = next((d for d in dps_meta if int(d.get("address")) == address), None)
         if dp_meta is None:
+            _LOGGER.debug("No metadata found for address %s, creating generic datapoint sensor", address)
             dp_meta = {"address": address, "name": f"Datapoint {address}"}
+        else:
+            _LOGGER.debug("Found metadata for address %s: %s", address, dp_meta.get("name", "?"))
 
         sensor = DatapointSensor(pt, dp_meta, initial_value=value)
         dp_sensors[key] = sensor
+        _LOGGER.info("Creating datapoint sensor for device=%s, address=%s, name='%s'", device_key, address, dp_meta.get("name", "?"))
         async_add_entities([sensor], update_before_add=False)
 
     unsub_dp = async_dispatcher_connect(hass, SIGNAL_DP_UPDATE, _on_dp_first_value)
