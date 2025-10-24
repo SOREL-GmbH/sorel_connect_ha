@@ -10,7 +10,6 @@
           "username": "MQTT Username (optional)",
           "password": "MQTT Password (optional)",
           "broker_tls": "Use TLS/SSL",
-          "topic_prefix": "Topic Prefix",
           "auto_onboard": "Auto Onboard Devices",
           "api_server": "Metadata API Server",
           "api_url": "Metadata API URL Template"
@@ -21,7 +20,6 @@
           "username": "Username for MQTT authentication (leave empty if not required)",
           "password": "Password for MQTT authentication (leave empty if not required)",
           "broker_tls": "Enable TLS/SSL encryption for MQTT connection",
-          "topic_prefix": "MQTT topic prefix used by your Sorel devices",
           "auto_onboard": "Automatically create sensors for newly discovered devices",
           "api_server": "Server hostname for device metadata API",
           "api_url": "URL template for fetching device metadata"
@@ -43,11 +41,9 @@
         "title": "Sorel Connect Options",
         "description": "Configure options for Sorel Connect integration.",
         "data": {
-          "topic_prefix": "Topic Prefix",
           "auto_onboard": "Auto Onboard Devices"
         },
         "data_description": {
-          "topic_prefix": "MQTT topic prefix used by your Sorel devices",
           "auto_onboard": "Automatically create sensors for newly discovered devices"
         }
       }

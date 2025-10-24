@@ -8,12 +8,10 @@ from .const import (
     DOMAIN,
     CONF_MODE,
     CONF_BROKER_TLS,
-    CONF_TOPIC_PREFIX,
     CONF_AUTO_ONBOARD,
     CONF_API_SERVER,
     CONF_API_URL,
     DEFAULT_PORT,
-    DEFAULT_PREFIX,
     DEFAULT_API_SERVER,
     DEFAULT_API_URL,
 )
@@ -26,7 +24,6 @@ DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_USERNAME, default=""): str,
         vol.Optional(CONF_PASSWORD, default=""): str,
         vol.Optional(CONF_BROKER_TLS, default=False): bool,
-        vol.Required(CONF_TOPIC_PREFIX, default=DEFAULT_PREFIX): str,
         vol.Required(CONF_AUTO_ONBOARD, default=True): bool,
         vol.Required(CONF_API_SERVER, default=DEFAULT_API_SERVER): str,
         vol.Required(CONF_API_URL, default=DEFAULT_API_URL): str,
@@ -76,10 +73,6 @@ class SorelConnectOptionsFlowHandler(config_entries.OptionsFlow):
 
         options_schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_TOPIC_PREFIX,
-                    default=self.config_entry.data.get(CONF_TOPIC_PREFIX, DEFAULT_PREFIX),
-                ): str,
                 vol.Required(
                     CONF_AUTO_ONBOARD,
                     default=self.config_entry.data.get(CONF_AUTO_ONBOARD, True),
