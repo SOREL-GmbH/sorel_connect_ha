@@ -21,7 +21,7 @@ from .const import (
 # User configuration schema
 DATA_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_HOST, default="mosquitto"): str,
+        vol.Required(CONF_HOST, default="localhost"): str,
         vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
         vol.Optional(CONF_USERNAME, default=""): str,
         vol.Optional(CONF_PASSWORD, default=""): str,
