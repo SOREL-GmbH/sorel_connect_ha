@@ -21,7 +21,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     """Set up binary sensor platform for Sorel Connect."""
 
     @callback
-    async def _on_new_device(pt: ParsedTopic):
+    def _on_new_device(pt: ParsedTopic):
         """Create binary sensor when new device is discovered."""
         # Create metadata status binary sensor (problem indicator)
         entities = [

@@ -73,7 +73,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     hass.data[DOMAIN].setdefault("dp_sensors", {})  # key: f"{device_key}:{address}" -> Entity
 
     @callback
-    async def _on_new_device(pt: ParsedTopic):
+    def _on_new_device(pt: ParsedTopic):
         _LOGGER.debug("Received SIGNAL_NEW_DEVICE: device_key=%s, device_name=%s, device_id=%s",
                      pt.device_key, pt.device_name, pt.device_id)
         coordinator = hass.data[DOMAIN]["coordinator"]

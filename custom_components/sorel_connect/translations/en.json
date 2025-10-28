@@ -23,6 +23,11 @@
     "error": {
       "invalid_host": "Invalid or empty broker host",
       "cannot_connect": "Failed to connect to MQTT broker",
+      "invalid_auth": "MQTT authentication failed (check username/password)",
+      "timeout": "Connection to MQTT broker timed out",
+      "cannot_resolve_host": "Cannot resolve hostname - check if the broker address is correct",
+      "connection_refused": "Connection refused - check if the broker is running and the port is correct",
+      "network_error": "Network error - broker may be unreachable or blocked by firewall",
       "unknown": "Unexpected error occurred"
     },
     "abort": {

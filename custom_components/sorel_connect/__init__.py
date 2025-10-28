@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import shutil
+import socket
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD, Platform
@@ -91,9 +93,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await gw.connect()  # Raises exception if unreachable
 
         _LOGGER.debug("-INIT 1/4: MQTT connected")
+    except asyncio.TimeoutError:
+        _LOGGER.error("-INIT 1/4: MQTT connection timed out for %s:%s", host, port)
+        raise ConfigEntryNotReady(f"MQTT broker connection timed out ({host}:{port}). Check if broker is responding.")
+    except ConnectionRefusedError:
+        _LOGGER.error("-INIT 1/4: MQTT broker refused connection on %s:%s (broker not running or wrong port)", host, port)
+        raise ConfigEntryNotReady(f"MQTT connection refused by {host}:{port}. Check if broker is running and port is correct.")
+    except socket.gaierror as err:
+        _LOGGER.error("-INIT 1/4: Cannot resolve hostname '%s': %s", host, err)
+        raise ConfigEntryNotReady(f"Cannot resolve MQTT broker hostname '{host}'. Check if the address is correct.")
+    except ConnectionError as err:
+        _LOGGER.error("-INIT 1/4: MQTT connection failed: %s", err)
+        # Check if it's an authentication error
+        if "Bad username or password" in str(err) or "Not authorized" in str(err):
+            raise ConfigEntryNotReady(f"MQTT authentication failed for {host}:{port}. Check username/password.")
+        else:
+            raise ConfigEntryNotReady(f"Failed to connect to MQTT broker {host}:{port}: {err}")
+    except OSError as err:
+        _LOGGER.error("-INIT 1/4: Network error connecting to %s:%s: %s", host, port, err)
+        raise ConfigEntryNotReady(f"Network error connecting to MQTT broker {host}:{port}. Check network/firewall.")
     except Exception as err:
-        _LOGGER.exception("-INIT 1/4: MQTT connect failed to %s:%s", host, port)
-        raise ConfigEntryNotReady from err
+        _LOGGER.exception("-INIT 1/4: Unexpected error connecting to MQTT broker %s:%s", host, port)
+        raise ConfigEntryNotReady(f"Unexpected error connecting to MQTT broker {host}:{port}: {err}")
 
     # 2) Initialize metadata client (use HA session)
     try:
