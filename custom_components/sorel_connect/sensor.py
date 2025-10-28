@@ -15,7 +15,14 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, SIGNAL_NEW_DEVICE, SIGNAL_DP_UPDATE
 from .topic_parser import ParsedTopic
-from .sensor_types import parse_sensor_name, get_sensor_config, is_sensor_type_register
+from .sensor_types import (
+    parse_sensor_name,
+    get_sensor_config,
+    is_sensor_type_register,
+    parse_relay_name,
+    is_relay_mode_register,
+    get_relay_mode_name,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,6 +127,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.debug("Found metadata for address %s: %s", address, sensor_name)
 
         coordinator = hass.data[DOMAIN]["coordinator"]
+
+        # Check if this is a relay mode register (R1 Mode, R2 Mode, etc.)
+        relay_name = is_relay_mode_register(sensor_name)
+        if relay_name:
+            # This is a Mode register - create diagnostic sensor
+            _LOGGER.info("Creating diagnostic sensor for Relay Mode: %s (address=%s)", sensor_name, address)
+            sensor = RelayModeDiagnosticSensor(pt, dp_meta, coordinator, initial_value=value)
+            dp_sensors[key] = sensor
+            async_add_entities([sensor], update_before_add=False)
+            return
 
         # Check if this is a sensor type register (S1 Type, S2 Type, etc.)
         base_sensor_name = is_sensor_type_register(sensor_name)
@@ -255,6 +272,57 @@ class SensorTypeDiagnosticSensor(SensorEntity):
             attrs['type_id'] = int(self._value)
         return attrs
 
+class RelayModeDiagnosticSensor(SensorEntity):
+    """Diagnostic sensor for R<n> Mode registers that shows relay mode name."""
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, pt: ParsedTopic, dp: dict, coordinator, initial_value=None):
+        self._pt = pt
+        self._dp = dp
+        self._coordinator = coordinator
+        self._address = int(dp.get("address"))
+        self._attr_name = dp.get("name", f"Datapoint {self._address}")
+        self._attr_unique_id = f"{pt.device_key}::dp_{self._address}".lower()
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pt.device_key)},
+            name=pt.device_name,
+            manufacturer=pt.oem_name,
+            model=pt.device_id,
+        )
+        self._attr_icon = "mdi:electric-switch-closed"
+        self._value = initial_value
+        self._unsub = None
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+
+        @callback
+        def _handle_dp_update(device_key, address, value):
+            if device_key == self._pt.device_key and address == self._address:
+                self._value = value
+                self.async_write_ha_state()
+
+        self._unsub = async_dispatcher_connect(self.hass, SIGNAL_DP_UPDATE, _handle_dp_update)
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self):
+        """Format mode_id as mode name."""
+        if isinstance(self._value, (int, float)):
+            mode_id = int(self._value)
+            return get_relay_mode_name(mode_id)
+        return str(self._value) if self._value is not None else None
+
+    @property
+    def extra_state_attributes(self):
+        attrs = dict(self._dp)
+        # Add raw mode_id value
+        if isinstance(self._value, (int, float)):
+            attrs['mode_id'] = int(self._value)
+        return attrs
+
 class DatapointSensor(SensorEntity):
     _attr_should_poll = False
     _attr_entity_registry_enabled_default = True
@@ -274,12 +342,24 @@ class DatapointSensor(SensorEntity):
         )
         self._attr_icon = "mdi:chart-line"
         self._sensor_type_name = None  # Will be set for S<n> sensors
+        self._is_relay = False  # Will be set for R<n> relays
+
+        # Check if this is a relay (R1, R2, etc.)
+        relay_num = parse_relay_name(self._attr_name)
+        if relay_num is not None:
+            # This is a relay - configure for percentage display
+            self._is_relay = True
+            self._attr_native_unit_of_measurement = PERCENTAGE
+            self._attr_icon = "mdi:electric-switch"
+            # No device_class for relays (generic percentage)
+            # No state_class needed for relays
+            _LOGGER.debug("Configured relay sensor %s for percentage display", self._attr_name)
 
         # Check if this is a sensor input (S1, S2, etc.)
         sensor_num = parse_sensor_name(self._attr_name)
         sensor_type_applied = False
 
-        if sensor_num is not None:
+        if sensor_num is not None and not self._is_relay:  # Don't apply sensor logic to relays
             # This is a sensor input - get type configuration
             try:
                 type_id = coordinator.get_sensor_type(pt.device_key, self._attr_name)
@@ -349,7 +429,16 @@ class DatapointSensor(SensorEntity):
 
     @property
     def native_value(self):
-        # Handle sensor error codes
+        # Handle relay values first (R1, R2, etc.)
+        if self._is_relay:
+            if isinstance(self._value, (int, float)):
+                if self._value < 0:
+                    return None  # Negative value = error → unavailable
+                # Scale to percentage: divide by 10 (0-1000 → 0-100%)
+                return self._value / 10
+            return self._value
+
+        # Handle sensor error codes (S1, S2, etc.)
         if isinstance(self._value, (int, float)):
             if self._value == -32767:
                 return None  # Sensor not connected → unavailable
@@ -360,6 +449,13 @@ class DatapointSensor(SensorEntity):
     @property
     def available(self) -> bool:
         """Mark sensor unavailable if error value received."""
+        # Check relay error (negative values)
+        if self._is_relay:
+            if isinstance(self._value, (int, float)):
+                return self._value >= 0  # Negative = not available
+            return self._value is not None
+
+        # Check sensor error codes
         if isinstance(self._value, (int, float)):
             return self._value not in (-32767, -32768)
         return self._value is not None
@@ -368,12 +464,17 @@ class DatapointSensor(SensorEntity):
     def extra_state_attributes(self):
         attrs = dict(self._dp)
 
+        # Add relay error info
+        if self._is_relay:
+            if isinstance(self._value, (int, float)) and self._value < 0:
+                attrs['error'] = 'Not connected'
+
         # Add sensor type if applicable
         if self._sensor_type_name:
             attrs['sensor_type'] = self._sensor_type_name
 
-        # Add error state info
-        if isinstance(self._value, (int, float)):
+        # Add sensor error state info
+        if not self._is_relay and isinstance(self._value, (int, float)):
             if self._value == -32767:
                 attrs['error'] = 'Not connected'
             elif self._value == -32768:

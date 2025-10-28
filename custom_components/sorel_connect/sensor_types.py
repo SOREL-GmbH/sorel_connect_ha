@@ -47,6 +47,9 @@ DEVICE_CLASS_MAP = {
 # Cache for loaded sensor types
 _sensor_types_cache: Optional[Dict[int, dict]] = None
 
+# Cache for loaded relay modes
+_relay_modes_cache: Optional[Dict[int, str]] = None
+
 
 def load_sensor_types() -> Dict[int, dict]:
     """
@@ -138,6 +141,36 @@ def parse_sensor_name(name: str) -> Optional[int]:
 
     name = name.strip()
     if name.startswith("S") and len(name) > 1:
+        number_part = name[1:]
+        if number_part.isdigit():
+            return int(number_part)
+
+    return None
+
+
+def parse_relay_name(name: str) -> Optional[int]:
+    """
+    Parse relay name to extract relay number.
+
+    Args:
+        name: Relay name like "R1", "R2", "R15"
+
+    Returns:
+        Relay number (1, 2, 15, etc.) or None if not a relay
+
+    Examples:
+        >>> parse_relay_name("R1")
+        1
+        >>> parse_relay_name("R15")
+        15
+        >>> parse_relay_name("Temperature")
+        None
+    """
+    if not name or not isinstance(name, str):
+        return None
+
+    name = name.strip()
+    if name.startswith("R") and len(name) > 1:
         number_part = name[1:]
         if number_part.isdigit():
             return int(number_part)
@@ -246,3 +279,111 @@ def get_type_register_address(sensor_address: int) -> int:
         43002
     """
     return sensor_address + 1
+
+
+# ============================================================================
+# Relay Mode Functions
+# ============================================================================
+
+def load_relay_modes() -> Dict[int, str]:
+    """
+    Load relay modes from CSV file.
+
+    Returns:
+        Dictionary mapping mode_id -> mode_name
+    """
+    global _relay_modes_cache
+
+    if _relay_modes_cache is not None:
+        _LOGGER.debug(f"Returning cached relay modes ({len(_relay_modes_cache)} modes)")
+        return _relay_modes_cache
+
+    # Locate CSV file relative to this module
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    csv_path = os.path.join(module_dir, "relay_modes.csv")
+
+    _LOGGER.info(f"Loading relay modes from: {csv_path}")
+
+    if not os.path.exists(csv_path):
+        _LOGGER.error(f"Relay modes CSV not found at {csv_path}")
+        _relay_modes_cache = {}
+        return _relay_modes_cache
+
+    relay_modes = {}
+
+    try:
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter=";")
+            row_count = 0
+            for row in reader:
+                row_count += 1
+                try:
+                    mode_id = int(row.get("mode_id", -1))
+                    mode_name = (row.get("mode_name") or "").strip()
+                    if mode_name and mode_id >= 0:
+                        relay_modes[mode_id] = mode_name
+                        _LOGGER.debug(f"Loaded relay mode {mode_id}: {mode_name}")
+                except (ValueError, KeyError) as e:
+                    _LOGGER.warning(f"Skipping invalid CSV row {row_count}: {row}, error: {e}")
+                    continue
+
+        _LOGGER.info(f"Successfully loaded {len(relay_modes)} relay modes from CSV (processed {row_count} rows)")
+        _relay_modes_cache = relay_modes
+
+    except Exception as e:
+        _LOGGER.error(f"Failed to load relay modes CSV from {csv_path}: {e}", exc_info=True)
+        _relay_modes_cache = {}
+
+    return _relay_modes_cache
+
+
+def is_relay_mode_register(dp_name: str) -> Optional[str]:
+    """
+    Check if datapoint represents a relay mode register.
+
+    Args:
+        dp_name: Datapoint name like "R1 Mode", "R2 Mode"
+
+    Returns:
+        Base relay name ("R1", "R2") or None if not a mode register
+
+    Examples:
+        >>> is_relay_mode_register("R1 Mode")
+        "R1"
+        >>> is_relay_mode_register("R15 Mode")
+        "R15"
+        >>> is_relay_mode_register("R1")
+        None
+    """
+    if not dp_name or not isinstance(dp_name, str):
+        return None
+
+    dp_name = dp_name.strip()
+    if dp_name.endswith(" Mode") and dp_name.startswith("R"):
+        relay_name = dp_name[:-5]  # Remove " Mode"
+        if parse_relay_name(relay_name) is not None:
+            return relay_name
+
+    return None
+
+
+def get_relay_mode_name(mode_id: int) -> str:
+    """
+    Get relay mode name from mode_id.
+
+    Args:
+        mode_id: Relay mode ID (0-5)
+
+    Returns:
+        Relay mode name or "Unknown Mode X" if not found
+
+    Examples:
+        >>> get_relay_mode_name(0)
+        "relay"
+        >>> get_relay_mode_name(2)
+        "PWM"
+        >>> get_relay_mode_name(999)
+        "Unknown Mode 999"
+    """
+    relay_modes = load_relay_modes()
+    return relay_modes.get(mode_id, f"Unknown Mode {mode_id}")
