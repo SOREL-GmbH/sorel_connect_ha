@@ -24,13 +24,15 @@ MQTT_ERROR_MESSAGES = {
 }
 
 class MqttGateway:
-    def __init__(self, host, port, username, password, tls_enabled, on_message: Callable[[str, bytes], Awaitable[None]]):
+    def __init__(self, host, port, username, password, tls_enabled, on_message: Callable[[str, bytes], Awaitable[None]],
+                 on_connection_change: Optional[Callable[[bool], Awaitable[None]]] = None):
         self._host = host
         self._port = port
         self._username = username
         self._password = password
         self._tls_enabled = tls_enabled
         self._on_message_cb = on_message
+        self._on_connection_change_cb = on_connection_change
         self._client = mqtt.Client(client_id="ha-my-sorel-connect", clean_session=True)
         if username:
             self._client.username_pw_set(username, password)
@@ -38,6 +40,8 @@ class MqttGateway:
             self._client.tls_set(cert_reqs=ssl.CERT_REQUIRED)
         self._loop = asyncio.get_running_loop()
         self._connect_future: Optional[asyncio.Future] = None
+        self._is_connected: bool = False
+        self._reconnect_count: int = 0
 
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_paho_message
@@ -66,19 +70,49 @@ class MqttGateway:
 
     def _on_connect(self, client, userdata, flags, rc):
         if rc == 0:
-            _LOGGER.info("Connected to MQTT broker")
+            was_reconnect = self._reconnect_count > 0
+            if was_reconnect:
+                _LOGGER.info("Reconnected to MQTT broker (attempt %d)", self._reconnect_count)
+                self._reconnect_count = 0
+            else:
+                _LOGGER.info("Connected to MQTT broker")
+
+            self._is_connected = True
+
+            # Notify about connection state change
+            if self._on_connection_change_cb:
+                asyncio.run_coroutine_threadsafe(
+                    self._on_connection_change_cb(True),
+                    self._loop
+                )
+
             if self._connect_future and not self._connect_future.done():
                 self._connect_future.set_result(True)
         else:
             error_msg = MQTT_ERROR_MESSAGES.get(rc, f"Unknown error (code {rc})")
             _LOGGER.error("MQTT connect failed rc=%s: %s", rc, error_msg)
+            self._is_connected = False
             if self._connect_future and not self._connect_future.done():
                 self._connect_future.set_exception(
                     ConnectionError(f"MQTT connection failed: {error_msg} (rc={rc})")
                 )
 
     def _on_disconnect(self, client, userdata, rc):
-        _LOGGER.warning("MQTT disconnected rc=%s", rc)
+        was_connected = self._is_connected
+        self._is_connected = False
+
+        if rc == 0:
+            _LOGGER.info("MQTT disconnected gracefully")
+        else:
+            _LOGGER.warning("MQTT disconnected unexpectedly (rc=%s), will auto-reconnect", rc)
+            self._reconnect_count += 1
+
+        # Notify about connection state change (only if we were actually connected)
+        if was_connected and self._on_connection_change_cb:
+            asyncio.run_coroutine_threadsafe(
+                self._on_connection_change_cb(False),
+                self._loop
+            )
 
     def _on_paho_message(self, client, userdata, msg):
         # Übergibt an async Callback
@@ -89,6 +123,11 @@ class MqttGateway:
 
     def publish_json(self, topic: str, payload: dict, retain: bool = True, qos: int = 0):
         self._client.publish(topic, json.dumps(payload), qos=qos, retain=retain)
+
+    @property
+    def is_connected(self) -> bool:
+        """Return True if currently connected to MQTT broker."""
+        return self._is_connected
 
     def stop(self):
         self._client.loop_stop()

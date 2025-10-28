@@ -8,6 +8,7 @@ import socket
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD, Platform
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     DOMAIN,
@@ -16,6 +17,7 @@ from .const import (
     CONF_API_URL,
     DEFAULT_API_SERVER,
     DEFAULT_API_URL,
+    SIGNAL_MQTT_CONNECTION_STATE,
 )
 from .mqtt_gateway import MqttGateway
 from .meta_client import MetaClient
@@ -82,13 +84,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def on_msg(topic: str, payload: bytes):
             await hass.data[DOMAIN]["coordinator"].handle_message(topic, payload)
 
+        async def on_connection_change(is_connected: bool):
+            """Notify all listeners about MQTT connection state change."""
+            _LOGGER.info("MQTT connection state changed: %s", "connected" if is_connected else "disconnected")
+            async_dispatcher_send(hass, SIGNAL_MQTT_CONNECTION_STATE, is_connected)
+
         gw = MqttGateway(
             host=host,
             port=port,
             username=username,
             password=password,
             tls_enabled=tls,
-            on_message=on_msg
+            on_message=on_msg,
+            on_connection_change=on_connection_change
         )
         await gw.connect()  # Raises exception if unreachable
 

@@ -12,13 +12,17 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 
-from .const import DOMAIN, SIGNAL_NEW_DEVICE
+from .const import DOMAIN, SIGNAL_NEW_DEVICE, SIGNAL_MQTT_CONNECTION_STATE
 from .topic_parser import ParsedTopic
 
 _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Set up binary sensor platform for Sorel Connect."""
+
+    # Create global MQTT connection status sensor (no device association)
+    mqtt_connection_sensor = MqttConnectionStatusBinarySensor(entry)
+    async_add_entities([mqtt_connection_sensor], update_before_add=False)
 
     @callback
     def _on_new_device(pt: ParsedTopic):
@@ -96,5 +100,68 @@ class MetadataStatusBinarySensor(BinarySensorEntity):
             "device_type": self._pt.device_id,
             "oem_name": self._pt.oem_name,
         })
+
+        return attrs
+
+
+class MqttConnectionStatusBinarySensor(BinarySensorEntity):
+    """Binary sensor indicating MQTT broker connection status."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_should_poll = False
+    _attr_name = "MQTT Connection"
+    _attr_icon = "mdi:lan-connect"
+    _attr_entity_registry_enabled_default = True  # Enable by default
+
+    def __init__(self, entry: ConfigEntry):
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_mqtt_connection".lower()
+        self._is_connected = False
+        self._unsub = None
+
+    async def async_added_to_hass(self):
+        """Run when entity is added to Home Assistant."""
+        await super().async_added_to_hass()
+
+        # Get initial connection state from gateway
+        mqtt_gw = self.hass.data.get(DOMAIN, {}).get("mqtt")
+        if mqtt_gw:
+            self._is_connected = mqtt_gw.is_connected
+
+        # Listen for connection state changes
+        @callback
+        def _on_connection_state_change(is_connected: bool):
+            """Handle MQTT connection state change."""
+            self._is_connected = is_connected
+            self.async_write_ha_state()
+
+        self._unsub = async_dispatcher_connect(
+            self.hass,
+            SIGNAL_MQTT_CONNECTION_STATE,
+            _on_connection_state_change
+        )
+
+        # Write initial state
+        self.async_write_ha_state()
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if connected to MQTT broker."""
+        return self._is_connected
+
+    @property
+    def extra_state_attributes(self):
+        """Return additional connection information."""
+        mqtt_gw = self.hass.data.get(DOMAIN, {}).get("mqtt")
+        if not mqtt_gw:
+            return {"status": "Not initialized"}
+
+        attrs = {
+            "broker_host": mqtt_gw._host,
+            "broker_port": mqtt_gw._port,
+            "tls_enabled": mqtt_gw._tls_enabled,
+            "connection_state": "Connected" if self._is_connected else "Disconnected",
+        }
 
         return attrs
