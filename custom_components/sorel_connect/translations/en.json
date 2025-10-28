@@ -9,18 +9,14 @@
           "port": "MQTT Broker Port",
           "username": "MQTT Username (optional)",
           "password": "MQTT Password (optional)",
-          "broker_tls": "Use TLS/SSL",
-          "api_server": "Metadata API Server",
-          "api_url": "Metadata API URL Template"
+          "broker_tls": "Use TLS/SSL"
         },
         "data_description": {
           "host": "The hostname or IP address of your MQTT broker",
           "port": "The port your MQTT broker is listening on (usually 1883)",
           "username": "Username for MQTT authentication (leave empty if not required)",
           "password": "Password for MQTT authentication (leave empty if not required)",
-          "broker_tls": "Enable TLS/SSL encryption for MQTT connection",
-          "api_server": "Server hostname for device metadata API",
-          "api_url": "URL template for fetching device metadata"
+          "broker_tls": "Enable TLS/SSL encryption for MQTT connection"
         }
       }
     },
@@ -37,10 +33,22 @@
     "step": {
       "init": {
         "title": "Sorel Connect Options",
-        "description": "Configure options for Sorel Connect integration.",
-        "data": {},
-        "data_description": {}
+        "description": "Configure API settings for the Sorel Connect integration.",
+        "data": {
+          "api_server": "Metadata API Server",
+          "api_url": "Metadata API URL Template"
+        },
+        "data_description": {
+          "api_server": "Server hostname for device metadata API",
+          "api_url": "URL template for fetching device metadata"
+        }
       }
+    }
+  },
+  "services": {
+    "clear_metadata_cache": {
+      "name": "Clear Metadata Cache",
+      "description": "Deletes all cached device metadata. The integration will re-fetch metadata from the API."
     }
   }
 }

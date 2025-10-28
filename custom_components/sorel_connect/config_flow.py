@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD
@@ -15,7 +16,9 @@ from .const import (
     DEFAULT_API_URL,
 )
 
-# User configuration schema
+_LOGGER = logging.getLogger(__name__)
+
+# User configuration schema - only MQTT settings for initial setup
 DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST, default="localhost"): str,
@@ -23,8 +26,6 @@ DATA_SCHEMA = vol.Schema(
         vol.Optional(CONF_USERNAME, default=""): str,
         vol.Optional(CONF_PASSWORD, default=""): str,
         vol.Optional(CONF_BROKER_TLS, default=False): bool,
-        vol.Required(CONF_API_SERVER, default=DEFAULT_API_SERVER): str,
-        vol.Required(CONF_API_URL, default=DEFAULT_API_URL): str,
     }
 )
 
@@ -66,10 +67,37 @@ class SorelConnectOptionsFlowHandler(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input=None):
         errors: dict[str, str] = {}
+
+        # Get current values from options (if set), otherwise from data, otherwise defaults
+        current_api_server = self.config_entry.options.get(
+            CONF_API_SERVER,
+            self.config_entry.data.get(CONF_API_SERVER, DEFAULT_API_SERVER)
+        )
+        current_api_url = self.config_entry.options.get(
+            CONF_API_URL,
+            self.config_entry.data.get(CONF_API_URL, DEFAULT_API_URL)
+        )
+
         if user_input is not None:
+            # Check if API settings changed
+            new_api_server = user_input.get(CONF_API_SERVER)
+            new_api_url = user_input.get(CONF_API_URL)
+
+            if new_api_server != current_api_server or new_api_url != current_api_url:
+                _LOGGER.info("API settings changed, clearing metadata cache")
+                # Import here to avoid circular dependency
+                from . import clear_metadata_cache
+                count = clear_metadata_cache()
+                _LOGGER.info("Cleared %d cached metadata files due to API settings change", count)
+
             return self.async_create_entry(title="", data=user_input)
 
-        options_schema = vol.Schema({})
+        options_schema = vol.Schema(
+            {
+                vol.Required(CONF_API_SERVER, default=current_api_server): str,
+                vol.Required(CONF_API_URL, default=current_api_url): str,
+            }
+        )
 
         return self.async_show_form(
             step_id="init", data_schema=options_schema, errors=errors

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD, Platform
@@ -10,14 +12,35 @@ from .const import (
     CONF_BROKER_TLS,
     CONF_API_SERVER,
     CONF_API_URL,
+    DEFAULT_API_SERVER,
+    DEFAULT_API_URL,
 )
 from .mqtt_gateway import MqttGateway
 from .meta_client import MetaClient
 from .coordinator import Coordinator
 
-PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR] 
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
 _LOGGER = logging.getLogger(__name__)
+
+def clear_metadata_cache(cache_dir: str = "/config/sorel_meta_cache") -> int:
+    """
+    Clear all cached metadata files.
+    Returns the number of files deleted.
+    """
+    if not os.path.exists(cache_dir):
+        _LOGGER.debug("Cache directory does not exist: %s", cache_dir)
+        return 0
+
+    try:
+        file_count = len([f for f in os.listdir(cache_dir) if os.path.isfile(os.path.join(cache_dir, f))])
+        shutil.rmtree(cache_dir)
+        os.makedirs(cache_dir, exist_ok=True)
+        _LOGGER.info("Cleared metadata cache: deleted %d files from %s", file_count, cache_dir)
+        return file_count
+    except Exception as e:
+        _LOGGER.error("Failed to clear metadata cache at %s: %s", cache_dir, e)
+        return 0
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
@@ -29,8 +52,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     username = data.get(CONF_USERNAME) or None
     password = data.get(CONF_PASSWORD) or None
     tls = bool(data.get(CONF_BROKER_TLS, False))
-    api_server = data.get(CONF_API_SERVER)
-    api_url_template = data.get(CONF_API_URL)
+
+    # API settings: check options first, then data (backwards compat), then defaults
+    api_server = entry.options.get(
+        CONF_API_SERVER,
+        data.get(CONF_API_SERVER, DEFAULT_API_SERVER)
+    )
+    api_url_template = entry.options.get(
+        CONF_API_URL,
+        data.get(CONF_API_URL, DEFAULT_API_URL)
+    )
 
     _LOGGER.debug("-INIT 0/4: Setting up %s: host=%s port=%s tls=%s api_server=%s api_url=%s",
                   DOMAIN, host, port, tls, api_server, api_url_template)
@@ -91,6 +122,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    # Register service for manual cache clearing
+    async def handle_clear_cache(call):
+        """Handle the clear_metadata_cache service call."""
+        _LOGGER.info("Clear metadata cache service called")
+        count = clear_metadata_cache()
+        _LOGGER.info("Service cleared %d cached metadata files", count)
+
+    hass.services.async_register(DOMAIN, "clear_metadata_cache", handle_clear_cache)
+
     _LOGGER.debug("-INIT 4/4: Setup complete")
 
     return True
@@ -105,6 +145,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception:  # Defensive
         _LOGGER.debug("mqtt.stop() ignored exception", exc_info=True)
     hass.data.pop(DOMAIN, None)
+
+    # Unregister service
+    hass.services.async_remove(DOMAIN, "clear_metadata_cache")
 
     return unload_ok
 

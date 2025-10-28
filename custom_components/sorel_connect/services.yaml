@@ -1,0 +1,4 @@
+clear_metadata_cache:
+  name: Clear Metadata Cache
+  description: Deletes all cached device metadata from /config/sorel_meta_cache/. The integration will re-fetch metadata from the API on next device discovery or reload.
+  fields: {}
