@@ -15,6 +15,7 @@ from homeassistant.helpers import entity_registry as er
 
 from .const import DOMAIN, SIGNAL_NEW_DEVICE, SIGNAL_DP_UPDATE
 from .topic_parser import ParsedTopic
+from .sensor_types import parse_sensor_name, get_sensor_config, is_sensor_type_register
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -112,14 +113,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         dps_meta = hass.data[DOMAIN]["meta_datapoints"].get(device_key, [])
         dp_meta = next((d for d in dps_meta if int(d.get("address")) == address), None)
         if dp_meta is None:
-            _LOGGER.debug("No metadata found for address %s, creating generic datapoint sensor", address)
-            dp_meta = {"address": address, "name": f"Datapoint {address}"}
-        else:
-            _LOGGER.debug("Found metadata for address %s: %s", address, dp_meta.get("name", "?"))
+            _LOGGER.debug("No metadata found for address %s, skipping sensor creation", address)
+            return  # Skip if no metadata
 
-        sensor = DatapointSensor(pt, dp_meta, initial_value=value)
+        sensor_name = dp_meta.get("name", "")
+        _LOGGER.debug("Found metadata for address %s: %s", address, sensor_name)
+
+        coordinator = hass.data[DOMAIN]["coordinator"]
+
+        # Check if this is a sensor type register (S1 Type, S2 Type, etc.)
+        base_sensor_name = is_sensor_type_register(sensor_name)
+        if base_sensor_name:
+            # This is a Type register - create diagnostic sensor
+            _LOGGER.info("Creating diagnostic sensor for Type register: %s (address=%s)", sensor_name, address)
+            sensor = SensorTypeDiagnosticSensor(pt, dp_meta, coordinator, initial_value=value)
+            dp_sensors[key] = sensor
+            async_add_entities([sensor], update_before_add=False)
+            return
+
+        # Check if this is a sensor input (S1, S2, etc.)
+        sensor_num = parse_sensor_name(sensor_name)
+        if sensor_num is not None:
+            # This is a sensor input - check if we know its type yet
+            type_id = coordinator.get_sensor_type(device_key, sensor_name)
+
+            if type_id is None:
+                _LOGGER.debug("Sensor %s type not yet known for device %s, skipping creation until next update",
+                             sensor_name, device_key)
+                return  # Skip creation, will retry on next value arrival
+
+            _LOGGER.info("Sensor %s has type_id=%s, creating sensor with proper configuration",
+                        sensor_name, type_id)
+
+        sensor = DatapointSensor(pt, dp_meta, coordinator, initial_value=value)
         dp_sensors[key] = sensor
-        _LOGGER.info("Creating datapoint sensor for device=%s, address=%s, name='%s'", device_key, address, dp_meta.get("name", "?"))
+        _LOGGER.info("Creating datapoint sensor for device=%s, address=%s, name='%s'", device_key, address, sensor_name)
         async_add_entities([sensor], update_before_add=False)
 
     unsub_dp = async_dispatcher_connect(hass, SIGNAL_DP_UPDATE, _on_dp_first_value)
@@ -173,13 +201,68 @@ class NetworkIdSensor(BaseDeviceDiagSensor):
     def native_value(self):
         return self._pt.network_id
 
+class SensorTypeDiagnosticSensor(SensorEntity):
+    """Diagnostic sensor for S<n> Type registers that shows sensor type name."""
+    _attr_should_poll = False
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, pt: ParsedTopic, dp: dict, coordinator, initial_value=None):
+        self._pt = pt
+        self._dp = dp
+        self._coordinator = coordinator
+        self._address = int(dp.get("address"))
+        self._attr_name = dp.get("name", f"Datapoint {self._address}")
+        self._attr_unique_id = f"{pt.device_key}::dp_{self._address}".lower()
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, pt.device_key)},
+            name=pt.device_name,
+            manufacturer=pt.oem_name,
+            model=pt.device_id,
+        )
+        self._attr_icon = "mdi:form-select"
+        self._value = initial_value
+        self._unsub = None
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+
+        @callback
+        def _handle_dp_update(device_key, address, value):
+            if device_key == self._pt.device_key and address == self._address:
+                self._value = value
+                self.async_write_ha_state()
+
+        self._unsub = async_dispatcher_connect(self.hass, SIGNAL_DP_UPDATE, _handle_dp_update)
+        # Write initial state
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self):
+        """Format type_id as type name."""
+        if isinstance(self._value, (int, float)):
+            type_id = int(self._value)
+            temp_unit = self._coordinator.get_temp_unit(self._pt.device_key)
+            config = get_sensor_config(type_id, temp_unit)
+            return config['type_name']
+        return str(self._value) if self._value is not None else None
+
+    @property
+    def extra_state_attributes(self):
+        attrs = dict(self._dp)
+        # Add raw type_id value
+        if isinstance(self._value, (int, float)):
+            attrs['type_id'] = int(self._value)
+        return attrs
+
 class DatapointSensor(SensorEntity):
     _attr_should_poll = False
     _attr_entity_registry_enabled_default = True
 
-    def __init__(self, pt: ParsedTopic, dp: dict, initial_value=None):
+    def __init__(self, pt: ParsedTopic, dp: dict, coordinator, initial_value=None):
         self._pt = pt
         self._dp = dp
+        self._coordinator = coordinator
         self._address = int(dp.get("address"))
         self._attr_name = dp.get("name", f"Datapoint {self._address}")
         self._attr_unique_id = f"{pt.device_key}::dp_{self._address}".lower()
@@ -190,34 +273,64 @@ class DatapointSensor(SensorEntity):
             model=pt.device_id,
         )
         self._attr_icon = "mdi:chart-line"
+        self._sensor_type_name = None  # Will be set for S<n> sensors
 
-        try:
-            raw_unit = dp.get("unit")
-            if raw_unit:
-                unit = UNIT_MAP.get(raw_unit, raw_unit)
-                self._attr_native_unit_of_measurement = unit
+        # Check if this is a sensor input (S1, S2, etc.)
+        sensor_num = parse_sensor_name(self._attr_name)
+        sensor_type_applied = False
 
-                # Determine device_class
-                device_class = DEVICE_CLASS_BY_UNIT.get(unit)
-                if device_class:
-                    self._attr_device_class = device_class
+        if sensor_num is not None:
+            # This is a sensor input - get type configuration
+            try:
+                type_id = coordinator.get_sensor_type(pt.device_key, self._attr_name)
+                temp_unit = coordinator.get_temp_unit(pt.device_key)
 
-                    # state_class logic:
-                    if device_class == SensorDeviceClass.ENERGY:
-                        # Counter increases (if applicable) -> TOTAL_INCREASING
-                        self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+                if type_id is not None:
+                    config = get_sensor_config(type_id, temp_unit)
+                    self._sensor_type_name = config['type_name']
+
+                    # Override unit and device class from sensor type
+                    if config['mapped_unit']:
+                        self._attr_native_unit_of_measurement = config['mapped_unit']
+                    if config['device_class']:
+                        self._attr_device_class = config['device_class']
+                        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+                    sensor_type_applied = True
+                    _LOGGER.debug("Applied sensor type config for %s: type=%s, unit=%s, device_class=%s",
+                                 self._attr_name, config['type_name'], config['unit'], config['device_class'])
+            except Exception as e:
+                _LOGGER.warning(f"Error applying sensor type configuration for '{self._attr_name}': {e}")
+
+        # Fallback to metadata unit if sensor type wasn't applied
+        if not sensor_type_applied:
+            try:
+                raw_unit = dp.get("unit")
+                if raw_unit:
+                    unit = UNIT_MAP.get(raw_unit, raw_unit)
+                    self._attr_native_unit_of_measurement = unit
+
+                    # Determine device_class
+                    device_class = DEVICE_CLASS_BY_UNIT.get(unit)
+                    if device_class:
+                        self._attr_device_class = device_class
+
+                        # state_class logic:
+                        if device_class == SensorDeviceClass.ENERGY:
+                            # Counter increases (if applicable) -> TOTAL_INCREASING
+                            self._attr_state_class = SensorStateClass.TOTAL_INCREASING
+                        else:
+                            # Normal measurement value
+                            self._attr_state_class = SensorStateClass.MEASUREMENT
                     else:
-                        # Normal measurement value
+                        # Fallback for numeric values without known unit
                         self._attr_state_class = SensorStateClass.MEASUREMENT
                 else:
-                    # Fallback for numeric values without known unit
-                    self._attr_state_class = SensorStateClass.MEASUREMENT
-            else:
-                # No unit -> no long-term statistics
-                pass
-        except Exception as e:
-            _LOGGER.warning(f"Error processing unit '{raw_unit}' for DP '{self._attr_name}': {e}")        
-        
+                    # No unit -> no long-term statistics
+                    pass
+            except Exception as e:
+                _LOGGER.warning(f"Error processing unit '{raw_unit}' for DP '{self._attr_name}': {e}")
+
         self._value = initial_value
         self._unsub = None
 
@@ -236,8 +349,34 @@ class DatapointSensor(SensorEntity):
 
     @property
     def native_value(self):
+        # Handle sensor error codes
+        if isinstance(self._value, (int, float)):
+            if self._value == -32767:
+                return None  # Sensor not connected → unavailable
+            if self._value == -32768:
+                return None  # Sensor error → unavailable
         return self._value
 
     @property
+    def available(self) -> bool:
+        """Mark sensor unavailable if error value received."""
+        if isinstance(self._value, (int, float)):
+            return self._value not in (-32767, -32768)
+        return self._value is not None
+
+    @property
     def extra_state_attributes(self):
-        return self._dp
+        attrs = dict(self._dp)
+
+        # Add sensor type if applicable
+        if self._sensor_type_name:
+            attrs['sensor_type'] = self._sensor_type_name
+
+        # Add error state info
+        if isinstance(self._value, (int, float)):
+            if self._value == -32767:
+                attrs['error'] = 'Not connected'
+            elif self._value == -32768:
+                attrs['error'] = 'Sensor error'
+
+        return attrs

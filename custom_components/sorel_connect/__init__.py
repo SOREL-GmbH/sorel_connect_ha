@@ -18,6 +18,7 @@ from .const import (
 from .mqtt_gateway import MqttGateway
 from .meta_client import MetaClient
 from .coordinator import Coordinator
+from .sensor_types import load_sensor_types
 
 PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
@@ -46,6 +47,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Load sensor types CSV early (before any sensors are created)
+    sensor_types = load_sensor_types()
+    _LOGGER.info("Sensor types loaded: %d types available", len(sensor_types))
+
     data = entry.data
     host = data.get(CONF_HOST)
     port = data.get(CONF_PORT, 1883)

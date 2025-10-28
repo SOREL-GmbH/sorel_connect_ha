@@ -3,15 +3,17 @@ import logging
 import json
 import time
 from collections import defaultdict
-from typing import Dict, Set, List, Tuple, Any
+from typing import Dict, Set, List, Tuple, Any, Optional
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .const import DOMAIN, SIGNAL_NEW_DEVICE, SIGNAL_DP_UPDATE
 from .topic_parser import parse_topic, ParsedTopic
+from .sensor_types import is_sensor_type_register, parse_sensor_name
 
 _LOGGER = logging.getLogger(__name__)
 
 STALE_REGISTER_MAX_AGE = 10.0  # Maximum age in seconds for related registers to be considered fresh
+TEMP_UNIT_REGISTER = 521  # Register holding temperature unit setting (0=°C, 1=°F)
 
 class Coordinator:
     def __init__(self, hass: HomeAssistant, mqtt_gw, meta_client):
@@ -26,6 +28,11 @@ class Coordinator:
         self._datapoints: dict[str, List[dict]] = defaultdict(list)
         # Decoded values: device_key -> { datapoint_start_address: decoded_value }
         self._dp_value_cache: dict[str, dict[int, Any]] = defaultdict(dict)
+
+        # Sensor type tracking: device_key -> { "S1": type_id, "S2": type_id, ... }
+        self._sensor_type_values: dict[str, dict[str, int]] = defaultdict(dict)
+        # Temperature unit setting: device_key -> 0 (°C) or 1 (°F)
+        self._temp_unit: dict[str, int] = {}
 
     async def start(self):
         self.mqtt.subscribe("+/device/+/+/+/+/dp/+/+")
@@ -94,6 +101,31 @@ class Coordinator:
         status = self.meta.get_device_status(organization_id, device_enum_id)
         return status == "ok"
 
+    def get_sensor_type(self, device_key: str, sensor_name: str) -> Optional[int]:
+        """
+        Get sensor type ID for a sensor input (e.g., 'S1', 'S2').
+
+        Args:
+            device_key: Device identifier (mac::network_id)
+            sensor_name: Sensor name like "S1", "S2", etc.
+
+        Returns:
+            Type ID (int) if known, None if not yet received
+        """
+        return self._sensor_type_values.get(device_key, {}).get(sensor_name)
+
+    def get_temp_unit(self, device_key: str) -> int:
+        """
+        Get temperature unit setting for a device.
+
+        Args:
+            device_key: Device identifier (mac::network_id)
+
+        Returns:
+            0 for °C (default), 1 for °F
+        """
+        return self._temp_unit.get(device_key, 0)
+
     # --- Register Update + Decoding -------------------------------------------
 
     def update_register(self, device_key: str, address: int, value: int):
@@ -101,9 +133,17 @@ class Coordinator:
         self._registers[device_key][address] = (value & 0xFFFF, now)
         _LOGGER.debug("Register updated for device %s: address=%s, value=%s (0x%04X)", device_key, address, value, value & 0xFFFF)
 
+        # Check if this is the temperature unit register
+        if address == TEMP_UNIT_REGISTER:
+            old_unit = self._temp_unit.get(device_key)
+            self._temp_unit[device_key] = value
+            _LOGGER.info("Temperature unit for device %s set to %s (%s)",
+                        device_key, value, "°F" if value == 1 else "°C")
+            if old_unit is not None and old_unit != value:
+                _LOGGER.info("Temperature unit changed from %s to %s for device %s", old_unit, value, device_key)
+
         # Check datapoints linearly (optimization possible later)
         datapoints = self._datapoints.get(device_key, [])
-        _LOGGER.debug("Checking %d datapoints for device %s against register address %s", len(datapoints), device_key, address)
         for dp in datapoints:
             start = int(dp.get("address", -1))
             if start < 0:
@@ -115,15 +155,47 @@ class Coordinator:
             if not (start <= address < start + reg_needed):
                 continue
             # Address matches this datapoint's range
-            _LOGGER.debug("Address %s matches datapoint '%s' (start=%s, registers=%s, bytes=%s, type=%s)",
-                         address, dp.get("name", "?"), start, reg_needed, length_bytes, dp.get("type", "?"))
+            dp_name = dp.get("name", "?")
+
+            # Check if this is a sensor type register (e.g., "S1 Type")
+            sensor_name = is_sensor_type_register(dp_name)
+
             decoded = self._try_decode_dp(device_key, dp, start, reg_needed, length_bytes)
             if decoded is not None:
+                _LOGGER.debug("Decoded datapoint '%s' at address %s: value=%s", dp_name, address, decoded)
                 prev = self._dp_value_cache[device_key].get(start)
                 if decoded != prev:
-                    self._dp_value_cache[device_key][start] = decoded
-                    _LOGGER.debug("Dispatching SIGNAL_DP_UPDATE for device=%s, address=%s, value=%s (prev=%s)",
-                                 device_key, start, decoded, prev)
+                    # Determine if we should cache this value
+                    should_cache = True
+
+                    # Check if this is an S<n> sensor without a known type
+                    # If so, don't cache - wait until type is known
+                    sensor_num = parse_sensor_name(dp_name)
+                    if sensor_num is not None:
+                        # This is an S<n> sensor - only cache if type is known
+                        type_id = self.get_sensor_type(device_key, dp_name)
+                        if type_id is None:
+                            should_cache = False
+                            _LOGGER.debug("Skipping cache for %s (type not yet known, will retry on next update)", dp_name)
+
+                    # Cache the value if appropriate
+                    if should_cache:
+                        self._dp_value_cache[device_key][start] = decoded
+
+                    # If this is a sensor type register, store the type mapping
+                    if sensor_name and isinstance(decoded, (int, float)):
+                        type_id = int(decoded)
+                        old_type = self._sensor_type_values[device_key].get(sensor_name)
+                        self._sensor_type_values[device_key][sensor_name] = type_id
+                        _LOGGER.info("Sensor type for %s on device %s set to %s (type_id=%s)",
+                                    sensor_name, device_key, dp_name, type_id)
+                        if old_type is not None and old_type != type_id:
+                            _LOGGER.warning("Sensor type changed from %s to %s for %s on device %s",
+                                          old_type, type_id, sensor_name, device_key)
+
+                    # Always dispatch signal (even if not cached)
+                    _LOGGER.debug("Dispatching SIGNAL_DP_UPDATE for device=%s, address=%s, value=%s (prev=%s, cached=%s)",
+                                 device_key, start, decoded, prev, should_cache)
                     async_dispatcher_send(
                         self.hass,
                         SIGNAL_DP_UPDATE,
@@ -131,8 +203,6 @@ class Coordinator:
                         start,
                         decoded
                     )
-                else:
-                    _LOGGER.debug("DP '%s' value unchanged (%s), skipping signal dispatch", dp.get("name", "?"), decoded)
 
     def _try_decode_dp(self, device_key: str, dp: dict, start: int, reg_count: int, length_bytes: int):
         regs = self._registers.get(device_key, {})
@@ -142,14 +212,10 @@ class Coordinator:
             a = start + off
             item = regs.get(a)
             if item is None:
-                _LOGGER.debug("Cannot decode DP '%s': missing register at address %s (need %s registers starting at %s)",
-                             dp.get("name", "?"), a, reg_count, start)
-                return None
+                return None  # Missing register, quietly skip
             val, ts = item
             if now - ts > STALE_REGISTER_MAX_AGE:
-                _LOGGER.debug("Cannot decode DP '%s': register at address %s is stale (%.1fs old, max %s)",
-                             dp.get("name", "?"), a, now - ts, STALE_REGISTER_MAX_AGE)
-                return None
+                return None  # Stale register, quietly skip
             words.append(val)
 
         raw_bytes = bytearray()
@@ -178,43 +244,37 @@ class Coordinator:
                 import struct
                 value = struct.unpack(">f", raw_bytes[:4])[0]
             elif dtype in ("bool", "boolean"):
-                decoded_bool = bool(raw_bytes[0] & 0x01)
-                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): value=%s", dp.get("name", "?"), dtype, decoded_bool)
-                return decoded_bool
+                return bool(raw_bytes[0] & 0x01)
             elif dtype.startswith("str") or dtype.startswith("char"):
-                decoded_str = raw_bytes.decode("utf-8", errors="ignore").rstrip("\x00")
-                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): value='%s'", dp.get("name", "?"), dtype, decoded_str)
-                return decoded_str
+                return raw_bytes.decode("utf-8", errors="ignore").rstrip("\x00")
 
             if value is not None:
+                # Check for sensor error codes across all integer types
+                # -32767: sensor not connected
+                # -32768: sensor error or does not exist
+                if isinstance(value, int) and value in (-32767, -32768):
+                    _LOGGER.debug("Detected sensor error code %d for '%s', returning unchanged",
+                                 value, dp.get("name", "?"))
+                    return value  # Skip step and format processing
 
-
+                # Normal values: apply step multiplication
                 value = value * dp.get("step", 1)
-
 
                 if dp.get("format", 1) != "":
                     # if given the format is structured like {\r\n    \"0\": \"Off\",\r\n    \"1\": \"Daily\",\r\n    \"2\": \"Weekly\"\r\n}
                     try:
                         fmt = json.loads(dp.get("format"))
-                        # _LOGGER.debug(f"Applying format mapping for DP '{dp.get('name')}': {fmt}")
                         if isinstance(fmt, dict):
                             value_str = str(value)
                             if value_str in fmt:
-                                formatted_value = fmt[value_str]
-                                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): raw=%s, formatted='%s'",
-                                             dp.get("name", "?"), dtype, value, formatted_value)
-                                return formatted_value # return formatted string
+                                return fmt[value_str]  # Return formatted string
                             else:
-                                _LOGGER.warning(f"Value '{value_str}' not found in format mapping for DP '{dp.get('name')}'. Available keys: {list(fmt.keys())}. Returning raw value.")
+                                _LOGGER.debug(f"Value '{value_str}' not in format mapping for '{dp.get('name')}' (keys: {list(fmt.keys())})")
                         else:
-                            _LOGGER.warning(f"Format mapping for DP '{dp.get('name')}' is not a dictionary. Returning raw value.")
-                    except Exception:
-                        _LOGGER.warning(f"Error applying format: '{dp.get('format')}' for value: '{value}' of DP '{dp.get('name')}'. Returning raw value.")
+                            _LOGGER.warning(f"Format for '{dp.get('name')}' is not a dictionary")
+                    except Exception as e:
+                        _LOGGER.warning(f"Error applying format for '{dp.get('name')}': {e}")
 
-                # if value < dp.get("minValue") or value > dp.get("maxValue"):
-                #     return None
-
-                _LOGGER.debug("Successfully decoded DP '%s' (type=%s): value=%s", dp.get("name", "?"), dtype, value)
                 return value
 
             # Fallback to hex representation
