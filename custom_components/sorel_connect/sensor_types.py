@@ -1,8 +1,6 @@
 """Sensor type management for Sorel Connect integration."""
 from __future__ import annotations
-import csv
 import logging
-import os
 from typing import Dict, Optional
 from homeassistant.const import (
     PERCENTAGE,
@@ -14,6 +12,8 @@ from homeassistant.const import (
     UnitOfIrradiance,
 )
 from homeassistant.components.sensor import SensorDeviceClass
+
+from .const import SENSOR_TYPES, RELAY_MODES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ _relay_modes_cache: Optional[Dict[int, str]] = None
 
 def load_sensor_types() -> Dict[int, dict]:
     """
-    Load sensor types from CSV file.
+    Load sensor types from const.py.
 
     Returns:
         Dictionary mapping type_id -> {type_name, base_unit, device_class, temp_dependent}
@@ -64,56 +64,12 @@ def load_sensor_types() -> Dict[int, dict]:
         _LOGGER.debug(f"Returning cached sensor types ({len(_sensor_types_cache)} types)")
         return _sensor_types_cache
 
-    # Locate CSV file relative to this module
-    module_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(module_dir, "sensor_types.csv")
+    _LOGGER.info(f"Loading sensor types from const.py")
 
-    _LOGGER.info(f"Loading sensor types from: {csv_path}")
-    _LOGGER.debug(f"Module directory: {module_dir}")
+    # Use sensor types from const.py
+    _sensor_types_cache = SENSOR_TYPES.copy()
 
-    if not os.path.exists(csv_path):
-        _LOGGER.error(f"Sensor types CSV not found at {csv_path}")
-        _LOGGER.error(f"Directory contents: {os.listdir(module_dir) if os.path.exists(module_dir) else 'N/A'}")
-        _sensor_types_cache = {}
-        return _sensor_types_cache
-
-    sensor_types = {}
-
-    try:
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f, delimiter=";")
-            row_count = 0
-            for row in reader:
-                row_count += 1
-                try:
-                    # Defensive parsing: handle None/empty values
-                    type_id = int(row.get("type_id", 0))
-                    type_name = (row.get("type_name") or "").strip()
-                    base_unit = (row.get("base_unit") or "").strip() or None
-                    device_class = (row.get("device_class") or "").strip() or None
-                    temp_dependent = (row.get("temp_dependent") or "").strip().lower() == "true"
-
-                    if not type_name:
-                        _LOGGER.warning(f"Skipping CSV row {row_count}: missing type_name")
-                        continue
-
-                    sensor_types[type_id] = {
-                        "type_name": type_name,
-                        "base_unit": base_unit,
-                        "device_class": device_class,
-                        "temp_dependent": temp_dependent,
-                    }
-                    _LOGGER.debug(f"Loaded type {type_id}: {type_name}")
-                except (ValueError, KeyError, AttributeError) as e:
-                    _LOGGER.warning(f"Skipping invalid CSV row {row_count}: {row}, error: {e}")
-                    continue
-
-        _LOGGER.info(f"Successfully loaded {len(sensor_types)} sensor types from CSV (processed {row_count} rows)")
-        _sensor_types_cache = sensor_types
-
-    except Exception as e:
-        _LOGGER.error(f"Failed to load sensor types CSV from {csv_path}: {e}", exc_info=True)
-        _sensor_types_cache = {}
+    _LOGGER.info(f"Successfully loaded {len(_sensor_types_cache)} sensor types from const.py")
 
     return _sensor_types_cache
 
@@ -287,7 +243,7 @@ def get_type_register_address(sensor_address: int) -> int:
 
 def load_relay_modes() -> Dict[int, str]:
     """
-    Load relay modes from CSV file.
+    Load relay modes from const.py.
 
     Returns:
         Dictionary mapping mode_id -> mode_name
@@ -298,41 +254,12 @@ def load_relay_modes() -> Dict[int, str]:
         _LOGGER.debug(f"Returning cached relay modes ({len(_relay_modes_cache)} modes)")
         return _relay_modes_cache
 
-    # Locate CSV file relative to this module
-    module_dir = os.path.dirname(os.path.abspath(__file__))
-    csv_path = os.path.join(module_dir, "relay_modes.csv")
+    _LOGGER.info(f"Loading relay modes from const.py")
 
-    _LOGGER.info(f"Loading relay modes from: {csv_path}")
+    # Use relay modes from const.py
+    _relay_modes_cache = RELAY_MODES.copy()
 
-    if not os.path.exists(csv_path):
-        _LOGGER.error(f"Relay modes CSV not found at {csv_path}")
-        _relay_modes_cache = {}
-        return _relay_modes_cache
-
-    relay_modes = {}
-
-    try:
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f, delimiter=";")
-            row_count = 0
-            for row in reader:
-                row_count += 1
-                try:
-                    mode_id = int(row.get("mode_id", -1))
-                    mode_name = (row.get("mode_name") or "").strip()
-                    if mode_name and mode_id >= 0:
-                        relay_modes[mode_id] = mode_name
-                        _LOGGER.debug(f"Loaded relay mode {mode_id}: {mode_name}")
-                except (ValueError, KeyError) as e:
-                    _LOGGER.warning(f"Skipping invalid CSV row {row_count}: {row}, error: {e}")
-                    continue
-
-        _LOGGER.info(f"Successfully loaded {len(relay_modes)} relay modes from CSV (processed {row_count} rows)")
-        _relay_modes_cache = relay_modes
-
-    except Exception as e:
-        _LOGGER.error(f"Failed to load relay modes CSV from {csv_path}: {e}", exc_info=True)
-        _relay_modes_cache = {}
+    _LOGGER.info(f"Successfully loaded {len(_relay_modes_cache)} relay modes from const.py")
 
     return _relay_modes_cache
 

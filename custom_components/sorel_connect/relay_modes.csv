@@ -1,7 +1,0 @@
-mode_name;mode_id
-relay;0
-phase control;1
-PWM;2
-0-10V;3
-PWM (direct output, not scaled to a pump profile);4
-0-10V (like 4, but voltage);5
