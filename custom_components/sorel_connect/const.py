@@ -1,6 +1,5 @@
 DOMAIN = "sorel_connect"
 
-CONF_MODE = "mode"  # "supervisor" | "external"
 CONF_BROKER_HOST = "broker_host"
 CONF_BROKER_PORT = "broker_port"
 CONF_BROKER_USERNAME = "broker_username"

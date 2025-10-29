@@ -2,6 +2,7 @@ import asyncio
 import json
 import ssl
 import logging
+import secrets
 from typing import Callable, Awaitable, Optional
 import paho.mqtt.client as mqtt
 
@@ -24,8 +25,18 @@ MQTT_ERROR_MESSAGES = {
 }
 
 class MqttGateway:
-    def __init__(self, host, port, username, password, tls_enabled, on_message: Callable[[str, bytes], Awaitable[None]],
-                 on_connection_change: Optional[Callable[[bool], Awaitable[None]]] = None):
+    """MQTT Gateway with async support using paho-mqtt."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        username: Optional[str],
+        password: Optional[str],
+        tls_enabled: bool,
+        on_message: Callable[[str, bytes], Awaitable[None]],
+        on_connection_change: Optional[Callable[[bool], Awaitable[None]]] = None,
+    ) -> None:
         self._host = host
         self._port = port
         self._username = username
@@ -33,7 +44,9 @@ class MqttGateway:
         self._tls_enabled = tls_enabled
         self._on_message_cb = on_message
         self._on_connection_change_cb = on_connection_change
-        self._client = mqtt.Client(client_id="ha-my-sorel-connect", clean_session=True)
+        # Generate unique client ID to avoid conflicts between multiple instances
+        unique_suffix = secrets.token_hex(4)
+        self._client = mqtt.Client(client_id=f"ha-sorel-connect-{unique_suffix}", clean_session=True)
         if username:
             self._client.username_pw_set(username, password)
         if tls_enabled:
@@ -47,7 +60,7 @@ class MqttGateway:
         self._client.on_message = self._on_paho_message
         self._client.on_disconnect = self._on_disconnect
 
-    async def connect(self, timeout: float = 10.0):
+    async def connect(self, timeout: float = 10.0) -> None:
         """Connect to MQTT broker with timeout. Raises ConnectionError if connection fails."""
         self._connect_future = self._loop.create_future()
 
@@ -114,14 +127,16 @@ class MqttGateway:
                 self._loop
             )
 
-    def _on_paho_message(self, client, userdata, msg):
-        # Übergibt an async Callback
+    def _on_paho_message(self, client, userdata, msg) -> None:
+        """Handle incoming MQTT message and pass to async callback."""
         asyncio.run_coroutine_threadsafe(self._on_message_cb(msg.topic, msg.payload), self._loop)
 
-    def subscribe(self, topic: str, qos: int = 0):
+    def subscribe(self, topic: str, qos: int = 0) -> None:
+        """Subscribe to an MQTT topic."""
         self._client.subscribe(topic, qos=qos)
 
-    def publish_json(self, topic: str, payload: dict, retain: bool = True, qos: int = 0):
+    def publish_json(self, topic: str, payload: dict, retain: bool = True, qos: int = 0) -> None:
+        """Publish JSON payload to MQTT topic."""
         self._client.publish(topic, json.dumps(payload), qos=qos, retain=retain)
 
     @property
@@ -129,6 +144,7 @@ class MqttGateway:
         """Return True if currently connected to MQTT broker."""
         return self._is_connected
 
-    def stop(self):
+    def stop(self) -> None:
+        """Stop MQTT client and disconnect."""
         self._client.loop_stop()
         self._client.disconnect()

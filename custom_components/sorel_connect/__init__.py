@@ -48,6 +48,20 @@ def clear_metadata_cache(cache_dir: str = "/config/sorel_meta_cache") -> int:
         return 0
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Sorel Connect integration from YAML (not used)."""
+
+    # Register service once at module level
+    async def handle_clear_cache(call):
+        """Handle the clear_metadata_cache service call."""
+        _LOGGER.info("Clear metadata cache service called")
+        count = clear_metadata_cache(hass.config.path("sorel_meta_cache"))
+        _LOGGER.info("Service cleared %d cached metadata files", count)
+
+    # Only register if not already registered
+    if not hass.services.has_service(DOMAIN, "clear_metadata_cache"):
+        hass.services.async_register(DOMAIN, "clear_metadata_cache", handle_clear_cache)
+        _LOGGER.debug("Registered clear_metadata_cache service")
+
     return True
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -128,8 +142,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     try:
         from homeassistant.helpers import aiohttp_client
         session = aiohttp_client.async_get_clientsession(hass)
-        meta = MetaClient(api_server, api_url_template, session)
-        _LOGGER.debug("-INIT 2/4: Meta client initialized for %s%s", api_server, api_url_template)
+        cache_dir = hass.config.path("sorel_meta_cache")
+        meta = MetaClient(api_server, api_url_template, session, cache_dir=cache_dir)
+        _LOGGER.debug("-INIT 2/4: Meta client initialized for %s%s (cache: %s)", api_server, api_url_template, cache_dir)
     except Exception as err:
         _LOGGER.exception("-INIT 2/4: Meta client init/healthcheck failed")
         gw.stop()
@@ -154,38 +169,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN] = {
         "mqtt": gw,
         "coordinator": coord,
+        "meta_client": meta,
         "session": session,
     }
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
-    # Register service for manual cache clearing
-    async def handle_clear_cache(call):
-        """Handle the clear_metadata_cache service call."""
-        _LOGGER.info("Clear metadata cache service called")
-        count = clear_metadata_cache()
-        _LOGGER.info("Service cleared %d cached metadata files", count)
-
-    hass.services.async_register(DOMAIN, "clear_metadata_cache", handle_clear_cache)
-
     _LOGGER.debug("-INIT 4/4: Setup complete")
 
     return True
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     data = hass.data.get(DOMAIN)
     if not data:
         return True
+
+    # Cleanup meta client retry tasks
+    try:
+        meta_client = data.get("meta_client")
+        if meta_client:
+            await meta_client.close()
+            _LOGGER.debug("Meta client cleanup completed")
+    except Exception as err:
+        _LOGGER.warning("Error during meta client cleanup: %s", err, exc_info=True)
+
+    # Stop MQTT gateway
     try:
         data["mqtt"].stop()
-    except Exception:  # Defensive
-        _LOGGER.debug("mqtt.stop() ignored exception", exc_info=True)
+    except Exception as err:
+        _LOGGER.warning("Error stopping MQTT gateway: %s", err, exc_info=True)
+
     hass.data.pop(DOMAIN, None)
 
-    # Unregister service
-    hass.services.async_remove(DOMAIN, "clear_metadata_cache")
+    # Note: Service is NOT unregistered here since it's registered globally in async_setup()
+    # It will be cleaned up when HA shuts down or the integration is fully removed
 
     return unload_ok
 

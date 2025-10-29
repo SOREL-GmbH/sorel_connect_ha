@@ -13,10 +13,13 @@ from .sensor_types import is_sensor_type_register, parse_sensor_name
 _LOGGER = logging.getLogger(__name__)
 
 STALE_REGISTER_MAX_AGE = 10.0  # Maximum age in seconds for related registers to be considered fresh
+REGISTER_CLEANUP_AGE = 3600.0  # Clean up registers older than 1 hour
 TEMP_UNIT_REGISTER = 521  # Register holding temperature unit setting (0=°C, 1=°F)
 
 class Coordinator:
-    def __init__(self, hass: HomeAssistant, mqtt_gw, meta_client):
+    """Central coordinator for MQTT message handling, device discovery, and datapoint decoding."""
+
+    def __init__(self, hass: HomeAssistant, mqtt_gw, meta_client) -> None:
         self.hass = hass
         self.mqtt = mqtt_gw
         self.meta = meta_client
@@ -34,11 +37,13 @@ class Coordinator:
         # Temperature unit setting: device_key -> 0 (°C) or 1 (°F)
         self._temp_unit: dict[str, int] = {}
 
-    async def start(self):
+    async def start(self) -> None:
+        """Start the coordinator by subscribing to MQTT topics."""
         self.mqtt.subscribe("+/device/+/+/+/+/dp/+/+")
         _LOGGER.debug("Subscribed to topic wildcard for device datapoints")
 
-    async def handle_message(self, topic: str, payload: bytes):
+    async def handle_message(self, topic: str, payload: bytes) -> None:
+        """Handle incoming MQTT message: parse topic, discover devices, decode datapoints."""
         pt = parse_topic(topic)
         if not pt:
             _LOGGER.debug("Ignored topic (no match): %s", topic)
@@ -74,10 +79,12 @@ class Coordinator:
 
     # --- Datapoint Management -------------------------------------------------
 
-    def register_datapoints(self, device_key: str, datapoints: List[dict]):
+    def register_datapoints(self, device_key: str, datapoints: List[dict]) -> None:
+        """Register metadata datapoints for a device."""
         self._datapoints[device_key] = datapoints
 
-    def get_datapoint_value(self, device_key: str, address: int):
+    def get_datapoint_value(self, device_key: str, address: int) -> Any:
+        """Get decoded value for a specific datapoint address."""
         return self._dp_value_cache.get(device_key, {}).get(address)
 
     def is_device_metadata_available(self, device_key: str) -> bool:
@@ -128,10 +135,17 @@ class Coordinator:
 
     # --- Register Update + Decoding -------------------------------------------
 
-    def update_register(self, device_key: str, address: int, value: int):
+    def update_register(self, device_key: str, address: int, value: int) -> None:
+        """Update register value and attempt to decode associated datapoints."""
         now = time.time()
         self._registers[device_key][address] = (value & 0xFFFF, now)
         _LOGGER.debug("Register updated for device %s: address=%s, value=%s (0x%04X)", device_key, address, value, value & 0xFFFF)
+
+        # Periodically clean up old registers to prevent memory growth
+        # Check randomly (1% chance per update) to avoid overhead
+        import random
+        if random.random() < 0.01:
+            self._cleanup_old_registers()
 
         # Check if this is the temperature unit register
         if address == TEMP_UNIT_REGISTER:
@@ -204,7 +218,12 @@ class Coordinator:
                         decoded
                     )
 
-    def _try_decode_dp(self, device_key: str, dp: dict, start: int, reg_count: int, length_bytes: int):
+    def _try_decode_dp(self, device_key: str, dp: dict, start: int, reg_count: int, length_bytes: int) -> Optional[Any]:
+        """
+        Attempt to decode a datapoint from accumulated registers.
+
+        Returns decoded value or None if registers are incomplete/stale.
+        """
         regs = self._registers.get(device_key, {})
         words: list[int] = []
         now = time.time()
@@ -285,13 +304,40 @@ class Coordinator:
             _LOGGER.warning("Decoding failed for DP '%s' (type=%s): %s", dp.get("name", "?"), dtype, e)
             return None
 
+    def _cleanup_old_registers(self) -> None:
+        """Remove registers older than REGISTER_CLEANUP_AGE to prevent memory growth."""
+        now = time.time()
+        total_removed = 0
+
+        for device_key in list(self._registers.keys()):
+            device_regs = self._registers[device_key]
+            addresses_to_remove = [
+                addr for addr, (_, timestamp) in device_regs.items()
+                if now - timestamp > REGISTER_CLEANUP_AGE
+            ]
+
+            for addr in addresses_to_remove:
+                del device_regs[addr]
+                total_removed += 1
+
+            # Remove device entry if no registers remain
+            if not device_regs:
+                del self._registers[device_key]
+
+        if total_removed > 0:
+            _LOGGER.debug("Cleaned up %d old registers (age > %.0fs)", total_removed, REGISTER_CLEANUP_AGE)
+
     # --- Helper Functions -----------------------------------------------------
 
-    def _extract_register(self, payload: bytes, pt: ParsedTopic):
+    def _extract_register(self, payload: bytes, pt: ParsedTopic) -> Tuple[Optional[int], Optional[int]]:
         """
-        Extracts register address and value from topic and payload.
+        Extract register address and value from topic and payload.
+
         Address comes from ParsedTopic.address (topic segment 8).
         Value is numeric, either in JSON {"value": X} or plain text.
+
+        Returns:
+            Tuple of (address, value) or (None, None) if extraction fails.
         """
         # 1. Get address from parsed topic (segment 8)
         address = None

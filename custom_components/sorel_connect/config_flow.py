@@ -9,7 +9,6 @@ from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWO
 from homeassistant.core import callback
 from .const import (
     DOMAIN,
-    CONF_MODE,
     CONF_BROKER_TLS,
     CONF_API_SERVER,
     CONF_API_URL,
@@ -160,7 +159,9 @@ class SorelConnectOptionsFlowHandler(config_entries.OptionsFlow):
                 _LOGGER.info("API settings changed, clearing metadata cache")
                 # Import here to avoid circular dependency
                 from . import clear_metadata_cache
-                count = clear_metadata_cache()
+                # Use hass config path for cache directory
+                cache_dir = self.hass.config.path("sorel_meta_cache")
+                count = clear_metadata_cache(cache_dir)
                 _LOGGER.info("Cleared %d cached metadata files due to API settings change", count)
 
             return self.async_create_entry(title="", data=user_input)
