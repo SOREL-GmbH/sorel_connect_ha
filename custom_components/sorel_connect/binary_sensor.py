@@ -128,40 +128,47 @@ class MetadataStatusBinarySensor(BinarySensorEntity):
 
     @property
     def extra_state_attributes(self):
-        """Return detailed status information."""
+        """Return detailed status information including metadata fields.
+
+        Attributes are prefixed to indicate their source:
+        - 'status_*': Metadata fetch status from meta client
+        - 'topic_*': Values extracted from MQTT topic
+        - 'api_*': Values from API metadata response
+        """
         coordinator = self.hass.data[DOMAIN]["coordinator"]
 
-        # Get parsed topic to extract device_id
-        parsed_topics = self.hass.data.get(DOMAIN, {}).get("parsed_topics", {})
-        pt = parsed_topics.get(self._pt.device_key)
-        if not pt:
+        # Get comprehensive metadata info from coordinator
+        info = coordinator.get_metadata_info(self._pt.device_key)
+        if not info:
             return {"error": "Device not fully registered"}
 
-        # Get detailed status from meta client
-        organization_id = pt.oem_id
-        device_enum_id = getattr(pt, "device_id", None)
-        if not device_enum_id:
-            return {"error": "No device ID available"}
-
-        meta_client = coordinator.meta
-        details = meta_client.get_status_details(organization_id, device_enum_id)
-
-        # Format timestamp if present
+        # Build attributes with clear source prefixes
         attrs = {
-            "status": details["status"],
-            "message": details["message"],
-            "retry_count": details["retry_count"],
+            # Status information (from meta client)
+            "status_code": info.get("status"),
+            "status_message": info.get("status_message"),
+            "status_retry_count": info.get("retry_count", 0),
+
+            # MQTT topic information
+            "topic_device_key": self._pt.device_key,
+            "topic_oem_name": self._pt.oem_name,
+            "topic_oem_id_hex": info.get("organization_id_hex"),
+            "topic_device_id_hex": info.get("device_enum_id_hex"),
+
+            # Converted IDs for API call
+            "api_call_organization_id": info.get("organization_id_decimal"),
+            "api_call_device_enum_id": info.get("device_enum_id_decimal"),
         }
 
-        if details["last_error_time"]:
-            attrs["last_error"] = datetime.fromtimestamp(details["last_error_time"]).isoformat()
-
-        # Add device identification info
-        attrs.update({
-            "device_key": self._pt.device_key,
-            "device_type": self._pt.device_id,
-            "oem_name": self._pt.oem_name,
-        })
+        # Add API metadata fields if available
+        if info.get("device_description"):
+            attrs["api_device_description"] = info.get("device_description")
+        if info.get("language"):
+            attrs["api_language"] = info.get("language")
+        if info.get("datapoint_count") is not None:
+            attrs["api_datapoint_count"] = info.get("datapoint_count")
+        if info.get("generated_at"):
+            attrs["api_generated_at"] = info.get("generated_at")
 
         return attrs
 

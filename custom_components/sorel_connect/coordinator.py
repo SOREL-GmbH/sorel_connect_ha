@@ -46,6 +46,8 @@ class Coordinator:
         self._temp_unit: dict[str, int] = {}
         # Parsed topics storage: device_key -> ParsedTopic
         self._parsed_topics: dict[str, ParsedTopic] = {}
+        # Full metadata storage: device_key -> full metadata dict (including "meta" section)
+        self._full_metadata: dict[str, dict] = {}
 
     async def start(self) -> None:
         """Start the coordinator by subscribing to MQTT topics."""
@@ -68,13 +70,37 @@ class Coordinator:
             _LOGGER.info("Discovered new device: %s (%s:%s)", pt.device_key, getattr(pt, "oem_name", "?"), getattr(pt, "device_name", "?"))
             # Store parsed topic in hass.data for platform access
             self.hass.data.setdefault(DOMAIN, {}).setdefault("parsed_topics", {})[pt.device_key] = pt
+
             # Load metadata using IDs from MQTT topic
-            organization_id = pt.oem_id
-            device_enum_id = getattr(pt, "device_id", None)
+            # Convert hex IDs to decimal for API calls
+            organization_id_hex = pt.oem_id
+            device_enum_id_hex = getattr(pt, "device_id", None)
+
+            # Convert organization ID from hex to decimal
+            try:
+                organization_id = str(int(organization_id_hex, 16))
+                _LOGGER.debug(f"Converted organization_id {organization_id_hex} (hex) → {organization_id} (decimal)")
+            except (ValueError, TypeError):
+                _LOGGER.warning(f"Failed to convert oem_id '{organization_id_hex}' from hex to decimal, using as-is")
+                organization_id = organization_id_hex
+
+            # Convert device enum ID from hex to decimal
+            if device_enum_id_hex:
+                try:
+                    device_enum_id = str(int(device_enum_id_hex, 16))
+                    _LOGGER.debug(f"Converted device_id {device_enum_id_hex} (hex) → {device_enum_id} (decimal)")
+                except (ValueError, TypeError):
+                    _LOGGER.warning(f"Failed to convert device_id '{device_enum_id_hex}' from hex to decimal, using as-is")
+                    device_enum_id = device_enum_id_hex
+            else:
+                device_enum_id = None
+
             if device_enum_id:
                 try:
                     meta = await self.meta.get_metadata(organization_id, device_enum_id)
                     if meta:
+                        # Store full metadata (including "meta" section)
+                        self._full_metadata[pt.device_key] = meta
                         datapoints = meta.get("datapoints", [])
                         self.register_datapoints(pt.device_key, datapoints)
                         _LOGGER.info("Metadata for device %s loaded (%d datapoints)", pt.device_key, len(datapoints))
@@ -147,6 +173,71 @@ class Coordinator:
             0 for °C (default), 1 for °F
         """
         return self._temp_unit.get(device_key, 0)
+
+    def get_metadata_info(self, device_key: str) -> Optional[dict]:
+        """
+        Get metadata information for a device.
+
+        Args:
+            device_key: Device identifier (mac::network_id)
+
+        Returns:
+            Dictionary with metadata info including status and meta fields, or None if device not known
+        """
+        pt = self._parsed_topics.get(device_key)
+        if not pt:
+            return None
+
+        # Convert hex IDs to decimal (same logic as device discovery)
+        organization_id_hex = pt.oem_id
+        device_enum_id_hex = getattr(pt, "device_id", None)
+
+        try:
+            organization_id = str(int(organization_id_hex, 16))
+        except (ValueError, TypeError):
+            organization_id = organization_id_hex
+
+        if device_enum_id_hex:
+            try:
+                device_enum_id = str(int(device_enum_id_hex, 16))
+            except (ValueError, TypeError):
+                device_enum_id = device_enum_id_hex
+        else:
+            device_enum_id = None
+
+        # Get metadata status from meta client
+        if device_enum_id:
+            status_details = self.meta.get_status_details(organization_id, device_enum_id)
+        else:
+            status_details = {
+                "status": "error",
+                "message": "No device ID available",
+                "retry_count": 0,
+                "last_error_time": None,
+            }
+
+        result = {
+            "status": status_details["status"],
+            "status_message": status_details["message"],
+            "retry_count": status_details["retry_count"],
+            "organization_id_hex": organization_id_hex,
+            "organization_id_decimal": organization_id,
+            "device_enum_id_hex": device_enum_id_hex,
+            "device_enum_id_decimal": device_enum_id,
+        }
+
+        # Add metadata fields if available
+        full_meta = self._full_metadata.get(device_key)
+        if full_meta and "meta" in full_meta:
+            meta_section = full_meta["meta"]
+            result.update({
+                "device_description": meta_section.get("deviceDescription"),
+                "language": meta_section.get("language"),
+                "datapoint_count": meta_section.get("count"),
+                "generated_at": meta_section.get("generatedAt"),
+            })
+
+        return result
 
     def get_relay_mode(self, device_key: str, relay_name: str) -> Optional[int]:
         """
