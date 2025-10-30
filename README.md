@@ -21,11 +21,16 @@ If your device works with the official Sorel Connect mobile app or web interface
 
 - **Automatic Device Discovery**: Discovers Sorel devices automatically via MQTT topics
 - **Dynamic Sensor Creation**: Automatically creates sensors for all available datapoints
+- **Binary Sensors**: MQTT connection status monitoring and relay state tracking
+- **Relay Support**: Full relay control with mode configuration, percentage formatting, and diagnostics
+- **Sensor Type Management**: Comprehensive sensor type management with diagnostics
 - **Metadata-Driven**: Fetches device metadata from Sorel API for proper unit mapping and configuration
 - **Smart Caching**: Intelligent metadata caching with retry logic to minimize API calls
+- **Cache Management Service**: Built-in service to clear and refresh metadata cache without manual file operations
 - **Unit Conversion**: Automatic mapping to Home Assistant standard units (temperature, power, energy, etc.)
 - **Long-term Statistics**: Properly configured state classes for energy monitoring and statistics
 - **Device Classification**: Automatic device class detection (temperature, power, voltage, etc.)
+- **Enhanced Diagnostics**: Detailed metadata status, connection monitoring, and device information
 
 ## Requirements
 
@@ -33,15 +38,20 @@ If your device works with the official Sorel Connect mobile app or web interface
 - MQTT broker (e.g., Mosquitto) accessible to your Sorel devices
 
    **Authentication is required for Sorel devices to connect to the MQTT broker.**
-   Make sure to add users for your Sorel devices and the Home Assistant integration.
+   Make sure to add users for your Sorel devices.
 
    If using the Mosquitto broker add-on, follow these steps:
    1. Stop the broker if it's running
    2. Go to **Mosquitto broker** → **Konfiguration**
    3. Add a users for your Sorel devices
-   4. Add a user for Home Assistant integration
+   4. Add a user for Home Assistant integration if you want to use authentication there
    5. Save the configuration
    6. Start the broker
+
+   If you prefer not to use authentication for the integration, ensure your MQTT broker allows anonymous connections.
+
+   Instead of setting users in the mosquitto add-on, you can also add Homeassistant users. The add-on will automatically use those users.
+
 - Sorel Smart device compatible with Sorel Connect
 - **Internet connection required**:
   - **First-time setup**: Internet access is mandatory for initial metadata retrieval from the Sorel Connect metadata API
@@ -88,16 +98,14 @@ If your device works with the official Sorel Connect mobile app or web interface
 
 #### MQTT Broker Settings
 
-- **Host**: MQTT broker hostname or IP (default: `mosquitto`)
+- **Host**: MQTT broker hostname or IP (default: `localhost`)
 - **Port**: MQTT broker port (default: `1883`)
 - **Username**: MQTT username (optional)
 - **Password**: MQTT password (optional)
 - **Use TLS**: Enable TLS/SSL encryption (optional)
 
-#### Integration Settings
+#### API Settings
 
-- **Topic Prefix**: MQTT topic prefix for your devices (default: `vendor`)
-- **Auto Onboard**: Automatically create sensors for discovered devices (default: `true`)
 - **API Server**: Sorel metadata API server (default: pre-configured)
 - **API URL Template**: API endpoint template (default: pre-configured)
 
@@ -118,27 +126,24 @@ sorel:0000/device/AA:BB:CC:DD:EE:FF/id/1/controller:5001/dp/1/100
 
 The integration supports multiple payload formats:
 
-1. **JSON with address and value**:
-   ```json
-   {"address": 100, "value": 2500}
-   ```
 
-2. **JSON with value only** (address from topic):
+1. **JSON with value** (address from topic):
    ```json
    {"value": 2500}
    ```
 
-3. **Plain text** `address=value`:
-   ```
-   100=2500
-   ```
 
-4. **Plain number** (address from topic):
+2. **Plain number** (address from topic):
    ```
    2500
    ```
 
 ## Entities Created
+
+### Binary Sensors
+
+- **MQTT Connection Status**: Monitors the connection status to the MQTT broker
+- **Relay States**: Binary sensors for each relay showing on/off state
 
 ### Diagnostic Sensors (per device)
 
@@ -147,6 +152,7 @@ For each discovered device, the following diagnostic sensors are created:
 - **Device Type**: The device type identifier
 - **OEM ID**: Organization/manufacturer identifier
 - **Network ID**: Network identifier for the device
+- **Metadata Status**: Shows metadata fetch status and detailed debugging information
 
 ### Datapoint Sensors (dynamic)
 
@@ -158,6 +164,14 @@ For each datapoint discovered via MQTT, a sensor entity is created with:
 - **State Class**: Configured for long-term statistics
   - `measurement` for instantaneous values
   - `total_increasing` for energy counters
+
+### Relay Sensors
+
+Relay datapoints are automatically formatted with:
+
+- **Percentage display**: Values shown as percentages (0-100%)
+- **Mode configuration**: Relay operating modes with diagnostics
+- **Binary sensor support**: On/off state tracking
 
 ## Supported Units
 
@@ -213,6 +227,28 @@ The integration **depends on the Sorel Connect metadata API** to understand devi
 - **Cache Location**: All metadata is stored in `/config/sorel_meta_cache/` directory
 - **Offline Operation**: Once cached, devices work without internet access
 
+## Services
+
+### Clear Metadata Cache
+
+The integration provides a service to clear cached metadata and force a refresh from the Sorel Connect API.
+
+**Service name**: `sorel_connect.clear_metadata_cache`
+
+**How to use**:
+
+1. Go to **Developer Tools** → **Services**
+2. Select `sorel_connect.clear_metadata_cache`
+3. Click **Call Service**
+
+This will:
+
+- Delete all cached metadata files from `/config/sorel_meta_cache/`
+- Force the integration to fetch fresh metadata from the API for all devices
+- Automatically reload device configurations
+
+**Note**: Internet connection is required for the integration to fetch fresh metadata after clearing the cache.
+
 ## Options
 
 You can modify integration settings after setup:
@@ -222,8 +258,9 @@ You can modify integration settings after setup:
 3. Click **Configure**
 
 Available options:
-- **Topic Prefix**: Change MQTT topic prefix
-- **Auto Onboard**: Enable/disable automatic device onboarding
+
+- **API Server**: Change the Sorel metadata API server URL
+- **API URL Template**: Modify the API endpoint template for metadata requests
 
 ## Troubleshooting
 
@@ -243,9 +280,21 @@ Available options:
 
 ### Clearing Metadata Cache
 
-If you encounter issues with stale or incorrect metadata, you can manually clear the cache and force a refresh from the API.
+If you encounter issues with stale or incorrect metadata, you can clear the cache and force a refresh from the API.
 
-#### Using File Editor Add-on (Recommended)
+#### Using the Built-in Service (Recommended)
+
+1. Go to **Developer Tools** → **Services**
+2. Select `sorel_connect.clear_metadata_cache`
+3. Click **Call Service**
+
+The integration will automatically delete all cached metadata and fetch fresh data from the Sorel Connect API.
+
+#### Manual Method (Alternative)
+
+If you prefer to manually manage cache files or need to clear specific device metadata:
+
+**Using File Editor Add-on:**
 
 1. Install the **File Editor** add-on from the Add-on Store (if not already installed)
 2. Open File Editor from the sidebar
@@ -256,34 +305,6 @@ If you encounter issues with stale or incorrect metadata, you can manually clear
 5. Go to **Settings** → **Devices & Services**
 6. Find "Sorel Connect" and click the three dots → **Reload**
 
-#### Using SSH/Terminal
-
-1. Connect via SSH or Terminal add-on
-
-2. Navigate to cache directory:
-
-   ```bash
-   cd /config/sorel_meta_cache/
-   ```
-
-3. List cached files:
-
-   ```bash
-   ls -la
-   ```
-
-4. Remove specific file or all files:
-
-   ```bash
-   # Remove specific device metadata
-   rm 0000_5001.json
-
-   # Or remove all metadata
-   rm *.json
-   ```
-
-5. Reload the integration from UI: **Settings** → **Devices & Services** → **Sorel Connect** → **⋮** → **Reload**
-
 **Note**: After clearing the cache, the integration will automatically fetch fresh metadata from the Sorel Connect API when devices are next discovered. **Internet connection is required** for this to work.
 
 ### Enable Debug Logging
@@ -292,7 +313,7 @@ Add to your `configuration.yaml`:
 
 ```yaml
 logger:
-  default: info
+  default: warning
   logs:
     custom_components.sorel_connect: debug
     homeassistant.components.mqtt: debug
@@ -303,14 +324,14 @@ Then restart Home Assistant and check the logs under **Settings** → **System**
 ## Known Limitations
 
 - **Metadata availability varies**: Not all Sorel Smart device types have metadata available in the API yet (experimental)
-- **No UI for metadata refresh**: Currently requires manual filesystem operations (see Troubleshooting section)
 - No device removal/cleanup functionality yet
 
 ## Planned Features (TODO)
 
-- [ ] **Metadata Refresh Action**: Implement a service/action to refresh metadata from the API without manual filesystem operations
 - [ ] Device removal/cleanup functionality
 - [ ] Improved metadata availability and fallback handling for devices without API metadata
+- [ ] Optional forwarding of raw MQTT messages to enable users to also use the default Sorel Connect app alongside this integration
+- [ ] Add language selection to setup to fetch translated metadata where available
 
 ## Contributing
 

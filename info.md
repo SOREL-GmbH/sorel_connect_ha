@@ -11,7 +11,7 @@ Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant 
 ## What You Need
 
 - **Sorel Smart device** compatible with Sorel Connect (if it works with the Sorel Connect app, it should work here)
-- MQTT broker (Mosquitto, etc.)
+- MQTT broker (Mosquitto, etc.) **Make sure to add users for your Sorel devices** by now they need to have a username/password configured
 - **Internet connection** for initial device setup (metadata is cached afterward for offline use)
 - Home Assistant 2023.1+
 
@@ -19,6 +19,9 @@ Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant 
 
 - **Automatic discovery**: Devices appear when they publish to MQTT topics
 - **Metadata-driven**: Fetches device info from Sorel Connect API to configure sensors properly
+- **Dynamic entities**: Creates sensors, binary sensors (connection status, relays), and diagnostics
+- **Sensor type management**: Comprehensive sensor type identification with diagnostics
+- **Relay support**: Full relay monitoring with mode configuration and percentage display
 - **MQTT-driven updates**: Entities update when your device sends data over MQTT
   - **Update frequency depends on your device configuration**, not this integration
   - The integration passively receives and displays whatever your device publishes
@@ -30,7 +33,8 @@ Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant 
 2. Install "Sorel Connect" via HACS
 3. Restart Home Assistant
 4. Go to **Settings** → **Devices & Services** → **Add Integration** → "Sorel Connect"
-5. Enter your MQTT broker details
+5. Enter your MQTT broker details (default host: `localhost`, port: `1883`)
+
 
 ## Quick Troubleshooting
 
@@ -43,8 +47,8 @@ Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant 
 
 **Need to refresh metadata?**
 
-- Use File Editor add-on to delete files in `/config/sorel_meta_cache/`
-- Reload the integration: **Settings** → **Devices & Services** → **Sorel Connect** → **⋮** → **Reload**
+- **Use the service**: **Developer Tools** → **Services** → `sorel_connect.clear_metadata_cache`
+- Or manually: Use File Editor to delete files in `/config/sorel_meta_cache/`, then reload the integration
 
 ## Full Documentation
 
