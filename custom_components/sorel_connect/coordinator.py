@@ -8,7 +8,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from .const import DOMAIN, SIGNAL_NEW_DEVICE, SIGNAL_DP_UPDATE
 from .topic_parser import parse_topic, ParsedTopic
-from .sensor_types import is_sensor_type_register, parse_sensor_name
+from .sensor_types import (
+    is_sensor_type_register,
+    parse_sensor_name,
+    is_relay_mode_register,
+    parse_relay_name,
+    decode_relay_value,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -34,8 +40,12 @@ class Coordinator:
 
         # Sensor type tracking: device_key -> { "S1": type_id, "S2": type_id, ... }
         self._sensor_type_values: dict[str, dict[str, int]] = defaultdict(dict)
+        # Relay mode tracking: device_key -> { "R1": mode_id, "R2": mode_id, ... }
+        self._relay_mode_values: dict[str, dict[str, int]] = defaultdict(dict)
         # Temperature unit setting: device_key -> 0 (°C) or 1 (°F)
         self._temp_unit: dict[str, int] = {}
+        # Parsed topics storage: device_key -> ParsedTopic
+        self._parsed_topics: dict[str, ParsedTopic] = {}
 
     async def start(self) -> None:
         """Start the coordinator by subscribing to MQTT topics."""
@@ -49,10 +59,15 @@ class Coordinator:
             _LOGGER.debug("Ignored topic (no match): %s", topic)
             return
 
+        # Store parsed topic for this device
+        self._parsed_topics[pt.device_key] = pt
+
         # New device discovered?
         if pt.device_key not in self._known_devices:
             self._known_devices.add(pt.device_key)
             _LOGGER.info("Discovered new device: %s (%s:%s)", pt.device_key, getattr(pt, "oem_name", "?"), getattr(pt, "device_name", "?"))
+            # Store parsed topic in hass.data for platform access
+            self.hass.data.setdefault(DOMAIN, {}).setdefault("parsed_topics", {})[pt.device_key] = pt
             # Load metadata using IDs from MQTT topic
             organization_id = pt.oem_id
             device_enum_id = getattr(pt, "device_id", None)
@@ -133,6 +148,19 @@ class Coordinator:
         """
         return self._temp_unit.get(device_key, 0)
 
+    def get_relay_mode(self, device_key: str, relay_name: str) -> Optional[int]:
+        """
+        Get relay mode ID for a relay output (e.g., 'R1', 'R2').
+
+        Args:
+            device_key: Device identifier (mac::network_id)
+            relay_name: Relay name like "R1", "R2", etc.
+
+        Returns:
+            Mode ID (int) if known, None if not yet received
+        """
+        return self._relay_mode_values.get(device_key, {}).get(relay_name)
+
     # --- Register Update + Decoding -------------------------------------------
 
     def update_register(self, device_key: str, address: int, value: int) -> None:
@@ -174,6 +202,9 @@ class Coordinator:
             # Check if this is a sensor type register (e.g., "S1 Type")
             sensor_name = is_sensor_type_register(dp_name)
 
+            # Check if this is a relay mode register (e.g., "R1 Mode")
+            relay_name = is_relay_mode_register(dp_name)
+
             decoded = self._try_decode_dp(device_key, dp, start, reg_needed, length_bytes)
             if decoded is not None:
                 _LOGGER.debug("Decoded datapoint '%s' at address %s: value=%s", dp_name, address, decoded)
@@ -192,6 +223,21 @@ class Coordinator:
                             should_cache = False
                             _LOGGER.debug("Skipping cache for %s (type not yet known, will retry on next update)", dp_name)
 
+                    # Check if this is an R<n> relay without a known mode
+                    # If so, don't cache - wait until mode is known
+                    relay_num = parse_relay_name(dp_name)
+                    if relay_num is not None:
+                        # This is an R<n> relay - only cache if mode is known
+                        mode_id = self.get_relay_mode(device_key, dp_name)
+                        if mode_id is None:
+                            should_cache = False
+                            _LOGGER.debug("Skipping cache for %s (mode not yet known, will retry on next update)", dp_name)
+                        else:
+                            # Decode relay value based on mode before caching
+                            decoded = decode_relay_value(decoded, mode_id)
+                            _LOGGER.debug("Decoded relay %s with mode %s: raw=%s, decoded=%s",
+                                        dp_name, mode_id, self._try_decode_dp(device_key, dp, start, reg_needed, length_bytes), decoded)
+
                     # Cache the value if appropriate
                     if should_cache:
                         self._dp_value_cache[device_key][start] = decoded
@@ -206,6 +252,17 @@ class Coordinator:
                         if old_type is not None and old_type != type_id:
                             _LOGGER.warning("Sensor type changed from %s to %s for %s on device %s",
                                           old_type, type_id, sensor_name, device_key)
+
+                    # If this is a relay mode register, store the mode mapping
+                    if relay_name and isinstance(decoded, (int, float)):
+                        mode_id = int(decoded)
+                        old_mode = self._relay_mode_values[device_key].get(relay_name)
+                        self._relay_mode_values[device_key][relay_name] = mode_id
+                        _LOGGER.info("Relay mode for %s on device %s set to %s (mode_id=%s)",
+                                    relay_name, device_key, dp_name, mode_id)
+                        if old_mode is not None and old_mode != mode_id:
+                            _LOGGER.warning("Relay mode changed from %s to %s for %s on device %s",
+                                          old_mode, mode_id, relay_name, device_key)
 
                     # Always dispatch signal (even if not cached)
                     _LOGGER.debug("Dispatching SIGNAL_DP_UPDATE for device=%s, address=%s, value=%s (prev=%s, cached=%s)",

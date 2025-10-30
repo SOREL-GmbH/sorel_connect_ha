@@ -17,7 +17,7 @@ from .const import SENSOR_TYPES, RELAY_MODES
 
 _LOGGER = logging.getLogger(__name__)
 
-# Extended unit map for sensor types
+# Extended unit map for sensor types and relay modes
 SENSOR_TYPE_UNIT_MAP = {
     "°C": UnitOfTemperature.CELSIUS,
     "°F": UnitOfTemperature.FAHRENHEIT,
@@ -31,6 +31,8 @@ SENSOR_TYPE_UNIT_MAP = {
     "lux": "lx",  # Light level
     "W/m²": UnitOfIrradiance.WATTS_PER_SQUARE_METER,
     "ppm": "ppm",  # Parts per million (CO2)
+    "V": "V",  # Voltage (for relay voltage control modes)
+    "binary": None,  # Binary sensors don't have units
 }
 
 # Device class map
@@ -299,18 +301,121 @@ def get_relay_mode_name(mode_id: int) -> str:
     Get relay mode name from mode_id.
 
     Args:
-        mode_id: Relay mode ID (0-5)
+        mode_id: Relay mode ID (0-16)
 
     Returns:
         Relay mode name or "Unknown Mode X" if not found
 
     Examples:
         >>> get_relay_mode_name(0)
-        "relay"
-        >>> get_relay_mode_name(2)
-        "PWM"
+        "switched"
+        >>> get_relay_mode_name(9)
+        "pwm control"
         >>> get_relay_mode_name(999)
         "Unknown Mode 999"
     """
     relay_modes = load_relay_modes()
-    return relay_modes.get(mode_id, f"Unknown Mode {mode_id}")
+    mode_info = relay_modes.get(mode_id)
+    if mode_info:
+        return mode_info.get("mode_name", f"Unknown Mode {mode_id}")
+    return f"Unknown Mode {mode_id}"
+
+
+def get_relay_config(mode_id: int) -> dict:
+    """
+    Get relay configuration based on mode ID.
+
+    Args:
+        mode_id: Relay mode ID from device
+
+    Returns:
+        Dictionary with:
+            - mode_name: Relay mode name
+            - unit: Raw unit string ("binary", "%", "V", or None)
+            - mapped_unit: HA unit constant
+            - device_class: HA device class (e.g., "voltage")
+            - scale_factor: Division factor for value decoding (10, 100, or None)
+            - value_mapping: Dict for value mapping (e.g., {0: "off", 1000: "on"})
+            - is_binary: True if this is a binary (on/off) relay mode
+    """
+    relay_modes = load_relay_modes()
+
+    if mode_id not in relay_modes:
+        _LOGGER.warning(f"Unknown relay mode ID: {mode_id}, using generic relay")
+        return {
+            "mode_name": f"Unknown Mode {mode_id}",
+            "unit": None,
+            "mapped_unit": None,
+            "device_class": None,
+            "scale_factor": None,
+            "value_mapping": None,
+            "is_binary": False,
+        }
+
+    mode_info = relay_modes[mode_id]
+    unit = mode_info["unit"]
+
+    # Map to HA constants
+    mapped_unit = SENSOR_TYPE_UNIT_MAP.get(unit, unit) if unit else None
+    device_class = DEVICE_CLASS_MAP.get(mode_info["device_class"]) if mode_info["device_class"] else None
+
+    return {
+        "mode_name": mode_info["mode_name"],
+        "unit": unit,
+        "mapped_unit": mapped_unit,
+        "device_class": device_class,
+        "scale_factor": mode_info["scale_factor"],
+        "value_mapping": mode_info["value_mapping"],
+        "is_binary": unit == "binary",
+    }
+
+
+def decode_relay_value(raw_value: int, mode_id: int) -> Any:
+    """
+    Decode relay value based on mode.
+
+    Args:
+        raw_value: Raw register value from device
+        mode_id: Relay mode ID
+
+    Returns:
+        Decoded value (int, float, or str depending on mode)
+
+    Examples:
+        >>> decode_relay_value(750, mode_id=9)  # PWM mode
+        75.0
+        >>> decode_relay_value(12000, mode_id=10)  # Voltage mode
+        120.0
+        >>> decode_relay_value(1000, mode_id=6)  # Switched mode
+        "on"
+        >>> decode_relay_value(0, mode_id=6)  # Switched mode
+        "off"
+    """
+    relay_modes = load_relay_modes()
+
+    if mode_id not in relay_modes:
+        _LOGGER.debug(f"Unknown relay mode {mode_id}, returning raw value")
+        return raw_value
+
+    mode_info = relay_modes[mode_id]
+
+    # Check for value mapping first (binary modes)
+    value_mapping = mode_info.get("value_mapping")
+    if value_mapping:
+        # Try to map the value
+        if raw_value in value_mapping:
+            return value_mapping[raw_value]
+        # If value not in mapping, log warning and return closest match
+        _LOGGER.warning(f"Relay value {raw_value} not in mapping for mode {mode_id}, expected {list(value_mapping.keys())}")
+        # For binary modes, treat non-zero as "on"
+        if 0 in value_mapping and raw_value != 0:
+            return value_mapping.get(1000, value_mapping.get(max(value_mapping.keys())))
+        return raw_value
+
+    # Apply scale factor if present
+    scale_factor = mode_info.get("scale_factor")
+    if scale_factor:
+        return raw_value / scale_factor
+
+    # No transformation, return raw value
+    return raw_value

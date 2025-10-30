@@ -22,6 +22,7 @@ from .sensor_types import (
     parse_relay_name,
     is_relay_mode_register,
     get_relay_mode_name,
+    get_relay_config,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -161,6 +162,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
             _LOGGER.info("Sensor %s has type_id=%s, creating sensor with proper configuration",
                         sensor_name, type_id)
+
+        # Check if this is a relay (R1, R2, etc.)
+        relay_num = parse_relay_name(sensor_name)
+        if relay_num is not None:
+            # This is a relay - check if it's binary mode
+            mode_id = coordinator.get_relay_mode(device_key, sensor_name)
+
+            if mode_id is None:
+                _LOGGER.debug("Relay %s mode not yet known for device %s, skipping creation until next update",
+                             sensor_name, device_key)
+                return  # Skip creation, will retry on next value arrival
+
+            # Check if relay is in binary mode
+            config = get_relay_config(mode_id)
+            if config['is_binary']:
+                _LOGGER.debug("Relay %s is binary mode (mode=%s), skipping sensor creation (will be created in binary_sensor platform)",
+                             sensor_name, config['mode_name'])
+                return  # Skip creation, binary_sensor platform will handle it
+
+            _LOGGER.info("Relay %s has mode_id=%s (%s), creating sensor with proper configuration",
+                        sensor_name, mode_id, config['mode_name'])
 
         sensor = DatapointSensor(pt, dp_meta, coordinator, initial_value=value)
         dp_sensors[key] = sensor
@@ -343,17 +365,47 @@ class DatapointSensor(SensorEntity):
         self._attr_icon = "mdi:chart-line"
         self._sensor_type_name = None  # Will be set for S<n> sensors
         self._is_relay = False  # Will be set for R<n> relays
+        self._relay_mode_name = None  # Will be set for R<n> relays
 
         # Check if this is a relay (R1, R2, etc.)
         relay_num = parse_relay_name(self._attr_name)
+        relay_mode_applied = False
         if relay_num is not None:
-            # This is a relay - configure for percentage display
+            # This is a relay - get mode configuration
             self._is_relay = True
-            self._attr_native_unit_of_measurement = PERCENTAGE
             self._attr_icon = "mdi:electric-switch"
-            # No device_class for relays (generic percentage)
-            # No state_class needed for relays
-            _LOGGER.debug("Configured relay sensor %s for percentage display", self._attr_name)
+
+            try:
+                mode_id = coordinator.get_relay_mode(pt.device_key, self._attr_name)
+
+                if mode_id is not None:
+                    config = get_relay_config(mode_id)
+                    self._relay_mode_name = config['mode_name']
+
+                    # Note: Binary relays should not reach here - they should be created in binary_sensor platform
+                    # This is for PWM/voltage/other non-binary relays
+                    if config['is_binary']:
+                        _LOGGER.warning("Binary relay %s created in sensor platform (should be in binary_sensor)", self._attr_name)
+
+                    # Apply unit and device class from relay mode
+                    if config['mapped_unit']:
+                        self._attr_native_unit_of_measurement = config['mapped_unit']
+                    if config['device_class']:
+                        self._attr_device_class = config['device_class']
+                        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+                    relay_mode_applied = True
+                    _LOGGER.debug("Applied relay mode config for %s: mode=%s, unit=%s, device_class=%s",
+                                 self._attr_name, config['mode_name'], config['unit'], config['device_class'])
+                else:
+                    _LOGGER.debug("Relay %s mode not yet known, using default configuration", self._attr_name)
+            except Exception as e:
+                _LOGGER.warning(f"Error applying relay mode configuration for '{self._attr_name}': {e}")
+
+            # Fallback configuration if mode not applied
+            if not relay_mode_applied:
+                self._attr_native_unit_of_measurement = PERCENTAGE
+                _LOGGER.debug("Using fallback percentage display for relay %s", self._attr_name)
 
         # Check if this is a sensor input (S1, S2, etc.)
         sensor_num = parse_sensor_name(self._attr_name)
@@ -434,8 +486,7 @@ class DatapointSensor(SensorEntity):
             if isinstance(self._value, (int, float)):
                 if self._value < 0:
                     return None  # Negative value = error → unavailable
-                # Scale to percentage: divide by 10 (0-1000 → 0-100%)
-                return self._value / 10
+            # Value is already decoded by coordinator based on relay mode
             return self._value
 
         # Handle sensor error codes (S1, S2, etc.)
@@ -464,10 +515,12 @@ class DatapointSensor(SensorEntity):
     def extra_state_attributes(self):
         attrs = dict(self._dp)
 
-        # Add relay error info
+        # Add relay error info and mode
         if self._is_relay:
             if isinstance(self._value, (int, float)) and self._value < 0:
                 attrs['error'] = 'Not connected'
+            if self._relay_mode_name:
+                attrs['relay_mode'] = self._relay_mode_name
 
         # Add sensor type if applicable
         if self._sensor_type_name:

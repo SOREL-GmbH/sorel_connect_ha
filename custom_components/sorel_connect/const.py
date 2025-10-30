@@ -18,28 +18,31 @@ SIGNAL_MQTT_CONNECTION_STATE = f"{DOMAIN}_mqtt_connection_state"
 
 # --- Relay Modes --------------------------------------------------------------
 
-# Relay modes are only used for display purposes in the UI.
-# By now all Relay values are calculated to display percentages (0-100%).
+# Relay modes define how relay values are interpreted and displayed.
+# Each mode specifies decoding rules (scale_factor, value_mapping) and display properties (unit, device_class).
 RELAY_MODES = {
-    0: "switched",        # on/off (for older devices, previous SDK2)
-    1: "phase control",   # phase angle speed control (for older devices, previous SDK2)
-    2: "pwm",             # PWM control (for older devices, previous SDK2)
-    3: "voltage control", # voltage control (for older devices, previous SDK2)
-    4: "direct pwm",      # direct PWM (for older devices, previous SDK2)
-    5: "direct voltage",  # direct voltage (for older devices, previous SDK2)
+    # Legacy modes (SDK2) - for backward compatibility
+    0:  {"mode_name": "switched",         "unit": "binary",  "scale_factor": None,  "value_mapping": {0: "off", 1000: "on"},  "device_class": None},
+    1:  {"mode_name": "phase control",    "unit": "%",       "scale_factor": 10,    "value_mapping": None,                    "device_class": None},
+    2:  {"mode_name": "pwm",              "unit": "%",       "scale_factor": 10,    "value_mapping": None,                    "device_class": None},
+    3:  {"mode_name": "voltage control",  "unit": "V",       "scale_factor": 100,   "value_mapping": None,                    "device_class": "voltage"},
+    4:  {"mode_name": "direct pwm",       "unit": "%",       "scale_factor": 10,    "value_mapping": None,                    "device_class": None},
+    5:  {"mode_name": "direct voltage",   "unit": "V",       "scale_factor": 100,   "value_mapping": None,                    "device_class": "voltage"},
 
-    6: "switched",               # simple on/off control
-    7: "switched cycle",         # percent-based on/off cycle control
-    8: "phase control",          # phase angle speed control
-    9: "pwm control",            # PWM control
-    10: "voltage control",       # voltage control
-    11: "voltage straight",      # direct voltage, no PWM min/max checks
-    12: "pwm straight",          # direct PWM, no PWM min/max checks
+    # Current modes
+    6:  {"mode_name": "switched",         "unit": "binary",  "scale_factor": None,  "value_mapping": {0: "off", 1000: "on"},  "device_class": None},
+    7:  {"mode_name": "switched cycle",   "unit": "%",       "scale_factor": 10,    "value_mapping": None,                    "device_class": None},
+    8:  {"mode_name": "phase control",    "unit": "%",       "scale_factor": 10,    "value_mapping": None,                    "device_class": None},
+    9:  {"mode_name": "pwm control",      "unit": "%",       "scale_factor": 10,    "value_mapping": None,                    "device_class": None},
+    10: {"mode_name": "voltage control",  "unit": "V",       "scale_factor": 100,   "value_mapping": None,                    "device_class": "voltage"},
+    11: {"mode_name": "voltage straight", "unit": "V",       "scale_factor": 100,   "value_mapping": None,                    "device_class": "voltage"},
+    12: {"mode_name": "pwm straight",     "unit": "%",       "scale_factor": 10,    "value_mapping": None,                    "device_class": None},
 
-    13: "n modes",               # total number of valid relay modes
-    14: "internal",              # internal index (e.g., display PWM)
-    15: "error",                 # mutex failure or internal error
-    16: "invalid",               # relay not in list / invalid mode
+    # Special/meta modes - display as plain numbers
+    13: {"mode_name": "n modes",          "unit": None,      "scale_factor": None,  "value_mapping": None,                    "device_class": None},
+    14: {"mode_name": "internal",         "unit": None,      "scale_factor": None,  "value_mapping": None,                    "device_class": None},
+    15: {"mode_name": "error",            "unit": None,      "scale_factor": None,  "value_mapping": None,                    "device_class": None},
+    16: {"mode_name": "invalid",          "unit": None,      "scale_factor": None,  "value_mapping": None,                    "device_class": None},
 }
 
 # --- Sensor Types -------------------------------------------------------------
