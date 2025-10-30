@@ -1,7 +1,7 @@
 {
   "domain": "sorel_connect",
   "name": "Sorel Connect",
-  "version": "0.1.2",
+  "version": "0.2",
   "documentation": "https://github.com/SorelHaDev/sorel_connect",
   "issue_tracker": "https://github.com/SorelHaDev/sorel_connect/issues",
   "requirements": ["paho-mqtt>=1.6.1", "aiofiles"],
