@@ -129,8 +129,8 @@ Key files:
 ## Need Help?
 
 - Check [DEVELOPMENT.md](DEVELOPMENT.md) for architecture details
-- Browse [existing issues](https://github.com/SorelHaDev/sorel_connect/issues)
-- Open a [new issue](https://github.com/SorelHaDev/sorel_connect/issues/new) if you're stuck
+- Browse [existing issues](https://github.com/SOREL-GmbH/sorel_connect_ha/issues)
+- Open a [new issue](https://github.com/SOREL-GmbH/sorel_connect_ha/issues/new) if you're stuck
 
 ## Code of Conduct
 

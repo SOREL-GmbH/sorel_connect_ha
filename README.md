@@ -65,7 +65,7 @@ If your device works with the official Sorel Connect mobile app or web interface
 1. Open HACS in your Home Assistant instance
 2. Click the three dots in the top right corner
 3. Select "Custom repositories"
-4. Add `https://github.com/SorelHaDev/sorel_connect` as repository
+4. Add `https://github.com/SOREL-GmbH/sorel_connect_ha` as repository
 5. Select "Integration" as category
 6. Click "Add"
 8. Click "Install" on the Sorel Connect card
@@ -73,7 +73,7 @@ If your device works with the official Sorel Connect mobile app or web interface
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub](https://github.com/SorelHaDev/sorel_connect/releases)
+1. Download the latest release from [GitHub](https://github.com/SOREL-GmbH/sorel_connect_ha/releases)
 2. Extract the `sorel_connect` folder to your `custom_components` directory
 3. The directory structure should be:
    ```
@@ -341,7 +341,7 @@ Want to contribute or test the integration locally? We've included a complete Do
 
 ```bash
 # Clone the repository
-git clone https://github.com/SorelHaDev/sorel_connect.git
+git clone https://github.com/SOREL-GmbH/sorel_connect_ha.git
 cd sorel_connect
 
 # Start development stack (Home Assistant + MQTT broker)
@@ -391,8 +391,8 @@ Quick overview:
 
 ## Support
 
-- [Report Issues](https://github.com/SorelHaDev/sorel_connect/issues)
-- [GitHub Repository](https://github.com/SorelHaDev/sorel_connect)
+- [Report Issues](https://github.com/SOREL-GmbH/sorel_connect_ha/issues)
+- [GitHub Repository](https://github.com/SOREL-GmbH/sorel_connect_ha)
 
 ## License
 

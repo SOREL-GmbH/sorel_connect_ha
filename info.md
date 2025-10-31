@@ -1,7 +1,7 @@
 # Sorel Connect
 
-[![GitHub Release](https://img.shields.io/github/release/SorelHaDev/sorel_connect.svg?style=flat-square)](https://github.com/SorelHaDev/sorel_connect/releases)
-[![License](https://img.shields.io/github/license/SorelHaDev/sorel_connect.svg?style=flat-square)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/release/SOREL-GmbH/sorel_connect_ha.svg?style=flat-square)](https://github.com/SOREL-GmbH/sorel_connect_ha/releases)
+[![License](https://img.shields.io/github/license/SOREL-GmbH/sorel_connect_ha.svg?style=flat-square)](LICENSE)
 [![hacs](https://img.shields.io/badge/HACS-Custom-orange.svg?style=flat-square)](https://github.com/hacs/integration)
 
 Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant via MQTT.
@@ -53,9 +53,9 @@ Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant 
 ## Full Documentation
 
 For detailed setup and troubleshooting:
-**[Read the full documentation on GitHub](https://github.com/SorelHaDev/sorel_connect/blob/main/README.md)**
+**[Read the full documentation on GitHub](https://github.com/SOREL-GmbH/sorel_connect_ha/blob/main/README.md)**
 
 ## Support
 
-- [Report Issues](https://github.com/SorelHaDev/sorel_connect/issues)
-- [GitHub Repository](https://github.com/SorelHaDev/sorel_connect)
+- [Report Issues](https://github.com/SOREL-GmbH/sorel_connect_ha/issues)
+- [GitHub Repository](https://github.com/SOREL-GmbH/sorel_connect_ha)
