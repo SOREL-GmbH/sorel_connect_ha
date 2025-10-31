@@ -333,14 +333,61 @@ Then restart Home Assistant and check the logs under **Settings** → **System**
 - [ ] Optional forwarding of raw MQTT messages to enable users to also use the default Sorel Connect app alongside this integration
 - [ ] Add language selection to setup to fetch translated metadata where available
 
+## Development
+
+Want to contribute or test the integration locally? We've included a complete Docker-based development environment!
+
+### Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/SorelHaDev/sorel_connect.git
+cd sorel_connect
+
+# Start development stack (Home Assistant + MQTT broker)
+cd docker
+docker-compose up -d
+
+# Access Home Assistant at http://localhost:8123
+# View logs
+docker-compose logs -f homeassistant
+```
+
+After making code changes to files in `custom_components/sorel_connect/`, restart Home Assistant:
+
+```bash
+docker-compose restart homeassistant
+```
+
+### Documentation
+
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Complete setup guide for contributors
+- **[DEVELOPMENT.md](DEVELOPMENT.md)** - Architecture and technical details
+- **[docker/README.md](docker/README.md)** - Development environment documentation
+
+### Testing MQTT
+
+Simulate Sorel device messages:
+
+```bash
+docker exec -it sorel-dev-mosquitto mosquitto_pub \
+  -t "sorel:0000/device/AA:BB:CC:DD:EE:FF/id/1/controller:5001/dp/1/100" \
+  -m '2500'
+```
+
+If you have access to a real Sorel device or a simulation tool, you can publish actual device messages to test the integration. 
+
 ## Contributing
 
-Contributions are welcome! Please:
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed setup instructions.
+
+Quick overview:
 
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+2. Set up the development environment (see above)
+3. Create a feature branch
+4. Make your changes and test them
+5. Submit a pull request
 
 ## Support
 

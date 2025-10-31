@@ -1,0 +1,31 @@
+version: "3.9"
+
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: sorel-dev-ha
+    environment:
+      - TZ=Europe/Berlin
+    volumes:
+      - ./homeassistant/config:/config
+      - ../custom_components:/config/custom_components:ro
+    ports:
+      - "8123:8123"
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: sorel-dev-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto:/mosquitto/config
+      - mosq-data:/mosquitto/data
+      - mosq-log:/mosquitto/log
+    restart: unless-stopped
+
+volumes:
+  mosq-data:
+  mosq-log:

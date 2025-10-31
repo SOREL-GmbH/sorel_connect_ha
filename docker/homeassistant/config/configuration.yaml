@@ -1,0 +1,17 @@
+homeassistant:
+  name: Dev HA
+  latitude: 52.52
+  longitude: 13.405
+  elevation: 34
+  unit_system: metric
+  time_zone: Europe/Berlin
+
+default_config:
+
+logger:
+  default: warning
+  logs:
+    custom_components.sorel_connect: debug
+    homeassistant.components.mqtt: debug
+
+mqtt:

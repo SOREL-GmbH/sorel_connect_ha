@@ -1,0 +1,15 @@
+# Home Assistant runtime data - do not commit
+.storage/
+.cloud/
+*.db
+*.db-shm
+*.db-wal
+*.log*
+deps/
+tts/
+image/
+sorel_meta_cache/
+blueprints/
+
+# Allow example configuration
+!configuration.yaml
