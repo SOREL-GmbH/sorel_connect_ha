@@ -98,3 +98,5 @@ docker/homeassistant/config/.HA_VERSION
 .cursorignore
 .cursorindexingignore
 .abstra/
+
+CLAUDE.md
