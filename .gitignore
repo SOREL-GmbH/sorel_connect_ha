@@ -85,9 +85,6 @@ docker/homeassistant/config/sorel_meta_cache/
 docker/homeassistant/config/blueprints/
 docker/homeassistant/config/.HA_VERSION
 
-# Mosquitto passwords (if created)
-docker/mosquitto/passwords
-
 # -------------------------------
 # Package managers (optional locks)
 # -------------------------------
