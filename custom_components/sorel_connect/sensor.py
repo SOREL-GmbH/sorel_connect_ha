@@ -19,7 +19,6 @@ from .sensor_types import (
     parse_sensor_name,
     get_sensor_config,
     is_sensor_type_register,
-    parse_relay_name,
     is_relay_mode_register,
     get_relay_mode_name,
     get_relay_config,
@@ -132,9 +131,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         # Check if this is a relay mode register (R1 Mode, R2 Mode, etc.)
         relay_name = is_relay_mode_register(sensor_name)
         if relay_name:
-            # This is a Mode register - create diagnostic sensor
-            _LOGGER.info("Creating diagnostic sensor for Relay Mode: %s (address=%s)", sensor_name, address)
-            sensor = RelayModeDiagnosticSensor(pt, dp_meta, coordinator, initial_value=value)
+            # This is a Mode register - get relay at address N-1 to determine proper naming
+            relay_dp_meta = next((d for d in dps_meta if int(d.get("address")) == address - 1), None)
+            if relay_dp_meta:
+                actual_relay_name = relay_dp_meta.get("name", "")
+                _LOGGER.info("Creating diagnostic sensor for Relay Mode: %s (address=%s) -> renamed to '%s Mode' based on relay at address %s",
+                            sensor_name, address, actual_relay_name, address - 1)
+                # Pass the actual relay name for proper entity naming
+                sensor = RelayModeDiagnosticSensor(pt, dp_meta, coordinator, initial_value=value, relay_name=actual_relay_name)
+            else:
+                _LOGGER.info("Creating diagnostic sensor for Relay Mode: %s (address=%s) - no relay found at address %s",
+                            sensor_name, address, address - 1)
+                sensor = RelayModeDiagnosticSensor(pt, dp_meta, coordinator, initial_value=value)
             dp_sensors[key] = sensor
             async_add_entities([sensor], update_before_add=False)
             return
@@ -163,9 +171,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             _LOGGER.info("Sensor %s has type_id=%s, creating sensor with proper configuration",
                         sensor_name, type_id)
 
-        # Check if this is a relay (R1, R2, etc.)
-        relay_num = parse_relay_name(sensor_name)
-        if relay_num is not None:
+        # Check if address N+1 has a mode register - if so, this is a relay
+        # Use address-based detection instead of name pattern matching
+        mode_dp_meta = next((d for d in dps_meta if int(d.get("address")) == address + 1), None)
+        if mode_dp_meta and is_relay_mode_register(mode_dp_meta.get("name", "")):
             # This is a relay - check if it's binary mode
             mode_id = coordinator.get_relay_mode(device_key, sensor_name)
 
@@ -300,12 +309,18 @@ class RelayModeDiagnosticSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = True
 
-    def __init__(self, pt: ParsedTopic, dp: dict, coordinator, initial_value=None):
+    def __init__(self, pt: ParsedTopic, dp: dict, coordinator, initial_value=None, relay_name=None):
         self._pt = pt
         self._dp = dp
         self._coordinator = coordinator
         self._address = int(dp.get("address"))
-        self._attr_name = dp.get("name", f"Datapoint {self._address}")
+
+        # Use relay_name to create proper display name if provided
+        if relay_name:
+            self._attr_name = f"{relay_name} Mode"
+        else:
+            self._attr_name = dp.get("name", f"Datapoint {self._address}")
+
         self._attr_unique_id = f"{pt.device_key}::dp_{self._address}".lower()
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, pt.device_key)},
@@ -367,10 +382,11 @@ class DatapointSensor(SensorEntity):
         self._is_relay = False  # Will be set for R<n> relays
         self._relay_mode_name = None  # Will be set for R<n> relays
 
-        # Check if this is a relay (R1, R2, etc.)
-        relay_num = parse_relay_name(self._attr_name)
+        # Check if address N+1 has a mode register - if so, this is a relay
+        # Use address-based detection instead of name pattern matching
+        mode_dp = coordinator.get_dp_at_address(pt.device_key, self._address + 1)
         relay_mode_applied = False
-        if relay_num is not None:
+        if mode_dp and is_relay_mode_register(mode_dp.get("name", "")):
             # This is a relay - get mode configuration
             self._is_relay = True
             self._attr_icon = "mdi:electric-switch"

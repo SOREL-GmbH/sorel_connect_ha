@@ -12,7 +12,6 @@ from .sensor_types import (
     is_sensor_type_register,
     parse_sensor_name,
     is_relay_mode_register,
-    parse_relay_name,
     decode_relay_value,
 )
 
@@ -252,6 +251,20 @@ class Coordinator:
         """
         return self._relay_mode_values.get(device_key, {}).get(relay_name)
 
+    def get_dp_at_address(self, device_key: str, address: int) -> Optional[dict]:
+        """
+        Get datapoint metadata at a specific address.
+
+        Args:
+            device_key: Device identifier (mac::network_id)
+            address: Modbus register address
+
+        Returns:
+            Datapoint metadata dict or None if not found
+        """
+        datapoints = self._datapoints.get(device_key, [])
+        return next((dp for dp in datapoints if int(dp.get("address", -1)) == address), None)
+
     # --- Register Update + Decoding -------------------------------------------
 
     def update_register(self, device_key: str, address: int, value: int) -> None:
@@ -314,15 +327,15 @@ class Coordinator:
                             should_cache = False
                             _LOGGER.debug("Skipping cache for %s (type not yet known, will retry on next update)", dp_name)
 
-                    # Check if this is an R<n> relay without a known mode
-                    # If so, don't cache - wait until mode is known
-                    relay_num = parse_relay_name(dp_name)
-                    if relay_num is not None:
-                        # This is an R<n> relay - only cache if mode is known
+                    # Check if address N+1 has a mode register - if so, this is a relay
+                    # Use address-based detection instead of name pattern matching
+                    mode_dp = self.get_dp_at_address(device_key, start + 1)
+                    if mode_dp and is_relay_mode_register(mode_dp.get("name", "")):
+                        # This is a relay - lookup mode by this datapoint's actual name
                         mode_id = self.get_relay_mode(device_key, dp_name)
                         if mode_id is None:
                             should_cache = False
-                            _LOGGER.debug("Skipping cache for %s (mode not yet known, will retry on next update)", dp_name)
+                            _LOGGER.debug("Skipping cache for relay %s (mode not yet known, will retry on next update)", dp_name)
                         else:
                             # Decode relay value based on mode before caching
                             decoded = decode_relay_value(decoded, mode_id)
@@ -345,15 +358,24 @@ class Coordinator:
                                           old_type, type_id, sensor_name, device_key)
 
                     # If this is a relay mode register, store the mode mapping
+                    # Use address-based detection: mode at address N describes relay at address N-1
                     if relay_name and isinstance(decoded, (int, float)):
                         mode_id = int(decoded)
-                        old_mode = self._relay_mode_values[device_key].get(relay_name)
-                        self._relay_mode_values[device_key][relay_name] = mode_id
-                        _LOGGER.info("Relay mode for %s on device %s set to %s (mode_id=%s)",
-                                    relay_name, device_key, dp_name, mode_id)
-                        if old_mode is not None and old_mode != mode_id:
-                            _LOGGER.warning("Relay mode changed from %s to %s for %s on device %s",
-                                          old_mode, mode_id, relay_name, device_key)
+
+                        # Look up the relay at address N-1 to get its actual name
+                        relay_dp = self.get_dp_at_address(device_key, start - 1)
+                        if relay_dp:
+                            actual_relay_name = relay_dp.get("name", relay_name)
+                            old_mode = self._relay_mode_values[device_key].get(actual_relay_name)
+                            self._relay_mode_values[device_key][actual_relay_name] = mode_id
+                            _LOGGER.info("Relay mode for %s (at address %s) on device %s set to %s (mode_id=%s) from mode register '%s' (at address %s)",
+                                        actual_relay_name, start - 1, device_key, dp_name, mode_id, dp_name, start)
+                            if old_mode is not None and old_mode != mode_id:
+                                _LOGGER.warning("Relay mode changed from %s to %s for %s on device %s",
+                                              old_mode, mode_id, actual_relay_name, device_key)
+                        else:
+                            _LOGGER.debug("No relay found at address %s for mode register '%s' (address %s)",
+                                         start - 1, dp_name, start)
 
                     # Always dispatch signal (even if not cached)
                     _LOGGER.debug("Dispatching SIGNAL_DP_UPDATE for device=%s, address=%s, value=%s (prev=%s, cached=%s)",

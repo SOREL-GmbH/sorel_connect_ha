@@ -14,7 +14,7 @@ from homeassistant.config_entries import ConfigEntry
 
 from .const import DOMAIN, SIGNAL_NEW_DEVICE, SIGNAL_MQTT_CONNECTION_STATE, SIGNAL_DP_UPDATE
 from .topic_parser import ParsedTopic
-from .sensor_types import parse_relay_name, get_relay_config
+from .sensor_types import get_relay_config, is_relay_mode_register
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,12 +66,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
         sensor_name = dp_meta.get("name", "")
 
-        # Check if this is a relay (R1, R2, etc.)
-        relay_num = parse_relay_name(sensor_name)
-        if relay_num is None:
+        # Check if address N+1 has a mode register - if so, this might be a relay
+        # Use address-based detection instead of name pattern matching
+        datapoints = coordinator._datapoints.get(device_key, [])
+        mode_dp_meta = next((d for d in datapoints if int(d.get("address")) == address + 1), None)
+        if not mode_dp_meta or not is_relay_mode_register(mode_dp_meta.get("name", "")):
             return  # Not a relay
 
-        # Check if relay mode is known and if it's binary
+        # This is a relay - check if relay mode is known and if it's binary
         mode_id = coordinator.get_relay_mode(device_key, sensor_name)
         if mode_id is None:
             _LOGGER.debug("Relay %s mode not yet known for binary sensor creation", sensor_name)
