@@ -382,6 +382,10 @@ class DatapointSensor(SensorEntity):
         self._is_relay = False  # Will be set for R<n> relays
         self._relay_mode_name = None  # Will be set for R<n> relays
 
+        # Mark ADC and ADJ entities as diagnostic (low-level hardware/calibration values)
+        if self._attr_name.startswith(("ADC", "Adj")):
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
         # Check if address N+1 has a mode register - if so, this is a relay
         # Use address-based detection instead of name pattern matching
         mode_dp = coordinator.get_dp_at_address(pt.device_key, self._address + 1)
