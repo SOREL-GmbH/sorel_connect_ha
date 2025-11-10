@@ -90,7 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data.get(CONF_API_URL, DEFAULT_API_URL)
     )
 
-    _LOGGER.debug("-INIT 0/4: Setting up %s: host=%s port=%s tls=%s api_server=%s api_url=%s",
+    _LOGGER.debug("-INIT 0/5: Setting up %s: host=%s port=%s tls=%s api_server=%s api_url=%s",
                   DOMAIN, host, port, tls, api_server, api_url_template)
 
     # 1) Connect to MQTT broker (with clean retry if offline)
@@ -114,28 +114,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
         await gw.connect()  # Raises exception if unreachable
 
-        _LOGGER.debug("-INIT 1/4: MQTT connected")
+        _LOGGER.debug("-INIT 1/5: MQTT connected")
     except asyncio.TimeoutError:
-        _LOGGER.error("-INIT 1/4: MQTT connection timed out for %s:%s", host, port)
+        _LOGGER.error("-INIT 1/5: MQTT connection timed out for %s:%s", host, port)
         raise ConfigEntryNotReady(f"MQTT broker connection timed out ({host}:{port}). Check if broker is responding.")
     except ConnectionRefusedError:
-        _LOGGER.error("-INIT 1/4: MQTT broker refused connection on %s:%s (broker not running or wrong port)", host, port)
+        _LOGGER.error("-INIT 1/5: MQTT broker refused connection on %s:%s (broker not running or wrong port)", host, port)
         raise ConfigEntryNotReady(f"MQTT connection refused by {host}:{port}. Check if broker is running and port is correct.")
     except socket.gaierror as err:
-        _LOGGER.error("-INIT 1/4: Cannot resolve hostname '%s': %s", host, err)
+        _LOGGER.error("-INIT 1/5: Cannot resolve hostname '%s': %s", host, err)
         raise ConfigEntryNotReady(f"Cannot resolve MQTT broker hostname '{host}'. Check if the address is correct.")
     except ConnectionError as err:
-        _LOGGER.error("-INIT 1/4: MQTT connection failed: %s", err)
+        _LOGGER.error("-INIT 1/5: MQTT connection failed: %s", err)
         # Check if it's an authentication error
         if "Bad username or password" in str(err) or "Not authorized" in str(err):
             raise ConfigEntryNotReady(f"MQTT authentication failed for {host}:{port}. Check username/password.")
         else:
             raise ConfigEntryNotReady(f"Failed to connect to MQTT broker {host}:{port}: {err}")
     except OSError as err:
-        _LOGGER.error("-INIT 1/4: Network error connecting to %s:%s: %s", host, port, err)
+        _LOGGER.error("-INIT 1/5: Network error connecting to %s:%s: %s", host, port, err)
         raise ConfigEntryNotReady(f"Network error connecting to MQTT broker {host}:{port}. Check network/firewall.")
     except Exception as err:
-        _LOGGER.exception("-INIT 1/4: Unexpected error connecting to MQTT broker %s:%s", host, port)
+        _LOGGER.exception("-INIT 1/5: Unexpected error connecting to MQTT broker %s:%s", host, port)
         raise ConfigEntryNotReady(f"Unexpected error connecting to MQTT broker {host}:{port}: {err}")
 
     # 2) Initialize metadata client (use HA session)
@@ -144,27 +144,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         session = aiohttp_client.async_get_clientsession(hass)
         cache_dir = hass.config.path("sorel_meta_cache")
         meta = MetaClient(api_server, api_url_template, session, cache_dir=cache_dir)
-        _LOGGER.debug("-INIT 2/4: Meta client initialized for %s%s (cache: %s)", api_server, api_url_template, cache_dir)
+        _LOGGER.debug("-INIT 2/5: Meta client initialized for %s%s (cache: %s)", api_server, api_url_template, cache_dir)
     except Exception as err:
-        _LOGGER.exception("-INIT 2/4: Meta client init/healthcheck failed")
+        _LOGGER.exception("-INIT 2/5: Meta client init/healthcheck failed")
         gw.stop()
         raise ConfigEntryNotReady from err
 
-    # 3) Start coordinator
+    # 3) Create coordinator (but don't start it yet)
     try:
         coord = Coordinator(
             hass=hass,
             mqtt_gw=gw,
             meta_client=meta,
         )
-        await coord.start()
-        _LOGGER.debug("-INIT 3/4: Coordinator started")
+        _LOGGER.debug("-INIT 3/5: Coordinator created")
     except Exception as err:
-        _LOGGER.exception("-INIT 3/4: Coordinator start failed")
+        _LOGGER.exception("-INIT 3/5: Coordinator creation failed")
         gw.stop()
         raise ConfigEntryNotReady from err
 
-    # 4) Store state and support reload
+    # 4) Store state BEFORE loading platforms (platforms need access to coordinator)
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN] = {
         "mqtt": gw,
@@ -174,9 +173,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
+    # 5) Load platforms FIRST - this registers all signal callbacks (CRITICAL!)
+    # Platforms must be loaded BEFORE coordinator starts to avoid race condition
+    # where MQTT messages arrive before callbacks are registered
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _LOGGER.debug("-INIT 4/5: Platforms loaded, callbacks registered")
 
-    _LOGGER.debug("-INIT 4/4: Setup complete")
+    # 6) NOW start coordinator - platforms are ready to receive signals
+    try:
+        await coord.start()
+        _LOGGER.debug("-INIT 5/5: Coordinator started, setup complete")
+    except Exception as err:
+        _LOGGER.exception("-INIT 5/5: Coordinator start failed")
+        gw.stop()
+        raise ConfigEntryNotReady from err
 
     return True
 
