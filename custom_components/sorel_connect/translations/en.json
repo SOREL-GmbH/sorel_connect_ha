@@ -43,7 +43,7 @@
       "cannot_resolve_host": "Cannot resolve hostname - check if the broker address is correct",
       "connection_refused": "Connection refused - check if the broker is running and the port is correct",
       "network_error": "Network error - broker may be unreachable or blocked by firewall",
-      "ha_mqtt_not_configured": "Home Assistant MQTT integration is not configured. Please configure MQTT first or uncheck the option to use a custom broker.",
+      "ha_mqtt_not_configured": "Home Assistant MQTT integration is not configured. Please configure MQTT first or use a custom broker.",
       "unknown": "Unexpected error occurred"
     },
     "abort": {

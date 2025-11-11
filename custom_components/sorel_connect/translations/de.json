@@ -1,0 +1,75 @@
+{
+  "selector": {
+    "mqtt_mode": {
+      "options": {
+        "ha_mqtt": "Home Assistant MQTT verwenden (empfohlen)",
+        "custom": "Benutzerdefinierten MQTT-Broker verwenden"
+      }
+    }
+  },
+  "config": {
+    "step": {
+      "user": {
+        "title": "Sorel Connect konfigurieren",
+        "description": "Wählen Sie aus, wie Sie eine Verbindung zu Ihrem MQTT-Broker herstellen möchten.",
+        "data": {
+          "use_ha_mqtt": "MQTT-Verbindungsmodus"
+        }
+      },
+      "broker": {
+        "title": "Benutzerdefinierten MQTT-Broker konfigurieren",
+        "description": "Geben Sie die Verbindungsdetails Ihres MQTT-Brokers ein. Verwenden Sie die Zurück-Taste Ihres Browsers, um zum vorherigen Schritt zurückzukehren.",
+        "data": {
+          "host": "MQTT-Broker-Host",
+          "port": "MQTT-Broker-Port",
+          "username": "MQTT-Benutzername (optional)",
+          "password": "MQTT-Passwort (optional)",
+          "broker_tls": "TLS/SSL verwenden"
+        },
+        "data_description": {
+          "host": "Der Hostname oder die IP-Adresse Ihres MQTT-Brokers",
+          "port": "Der Port, auf dem Ihr MQTT-Broker lauscht (normalerweise 1883)",
+          "username": "Benutzername für die MQTT-Authentifizierung (leer lassen, falls nicht erforderlich)",
+          "password": "Passwort für die MQTT-Authentifizierung (leer lassen, falls nicht erforderlich)",
+          "broker_tls": "TLS/SSL-Verschlüsselung für MQTT-Verbindung aktivieren"
+        }
+      }
+    },
+    "error": {
+      "invalid_host": "Ungültiger oder leerer Broker-Host",
+      "cannot_connect": "Verbindung zum MQTT-Broker fehlgeschlagen",
+      "invalid_auth": "MQTT-Authentifizierung fehlgeschlagen (Benutzername/Passwort überprüfen)",
+      "timeout": "Zeitüberschreitung bei der Verbindung zum MQTT-Broker",
+      "cannot_resolve_host": "Hostname kann nicht aufgelöst werden - überprüfen Sie, ob die Broker-Adresse korrekt ist",
+      "connection_refused": "Verbindung abgelehnt - überprüfen Sie, ob der Broker läuft und der Port korrekt ist",
+      "network_error": "Netzwerkfehler - Broker ist möglicherweise nicht erreichbar oder durch Firewall blockiert",
+      "ha_mqtt_not_configured": "Die Home Assistant MQTT-Integration ist nicht konfiguriert. Bitte konfigurieren Sie zuerst MQTT oder wählen Sie den benutzerdefinierten Broker.",
+      "unknown": "Unerwarteter Fehler aufgetreten"
+    },
+    "abort": {
+      "already_configured": "Diese Integration ist bereits konfiguriert"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Sorel Connect Optionen",
+        "description": "API-Einstellungen für die Sorel Connect Integration konfigurieren.",
+        "data": {
+          "api_server": "Metadaten-API-Server",
+          "api_url": "Metadaten-API-URL-Vorlage"
+        },
+        "data_description": {
+          "api_server": "Server-Hostname für die Gerätemetadaten-API",
+          "api_url": "URL-Vorlage zum Abrufen von Gerätemetadaten"
+        }
+      }
+    }
+  },
+  "services": {
+    "clear_metadata_cache": {
+      "name": "Metadaten-Cache leeren",
+      "description": "Löscht alle zwischengespeicherten Gerätemetadaten. Die Integration wird die Metadaten erneut von der API abrufen."
+    }
+  }
+}
