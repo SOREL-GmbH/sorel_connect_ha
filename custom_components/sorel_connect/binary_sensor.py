@@ -195,10 +195,10 @@ class MqttConnectionStatusBinarySensor(BinarySensorEntity):
         """Run when entity is added to Home Assistant."""
         await super().async_added_to_hass()
 
-        # Get initial connection state from gateway
-        mqtt_gw = self.hass.data.get(DOMAIN, {}).get("mqtt")
-        if mqtt_gw:
-            self._is_connected = mqtt_gw.is_connected
+        # Get initial connection state from MQTT client
+        mqtt_client = self.hass.data.get(DOMAIN, {}).get("mqtt")
+        if mqtt_client:
+            self._is_connected = mqtt_client.is_connected
 
         # Listen for connection state changes
         @callback
@@ -224,16 +224,25 @@ class MqttConnectionStatusBinarySensor(BinarySensorEntity):
     @property
     def extra_state_attributes(self):
         """Return additional connection information."""
-        mqtt_gw = self.hass.data.get(DOMAIN, {}).get("mqtt")
-        if not mqtt_gw:
+        mqtt_client = self.hass.data.get(DOMAIN, {}).get("mqtt")
+        if not mqtt_client:
             return {"status": "Not initialized"}
 
         attrs = {
-            "broker_host": mqtt_gw._host,
-            "broker_port": mqtt_gw._port,
-            "tls_enabled": mqtt_gw._tls_enabled,
             "connection_state": "Connected" if self._is_connected else "Disconnected",
         }
+
+        # Add broker details if using custom MQTT client
+        # Check if it's a CustomMqttClient by checking for _gateway attribute
+        if hasattr(mqtt_client, '_gateway'):
+            gateway = mqtt_client._gateway
+            attrs["mqtt_mode"] = "Custom Broker"
+            attrs["broker_host"] = gateway._host
+            attrs["broker_port"] = gateway._port
+            attrs["tls_enabled"] = gateway._tls_enabled
+        else:
+            # Using HA MQTT integration
+            attrs["mqtt_mode"] = "Home Assistant MQTT"
 
         return attrs
 

@@ -1,9 +1,24 @@
 {
+  "selector": {
+    "mqtt_mode": {
+      "options": {
+        "ha_mqtt": "Use Home Assistant MQTT (recommended)",
+        "custom": "Use custom MQTT broker"
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {
         "title": "Configure Sorel Connect",
-        "description": "Set up your Sorel Connect integration to connect to your MQTT broker and Sorel devices.",
+        "description": "Choose how to connect to your MQTT broker.",
+        "data": {
+          "use_ha_mqtt": "MQTT Connection Mode"
+        }
+      },
+      "broker": {
+        "title": "Configure Custom MQTT Broker",
+        "description": "Enter your MQTT broker connection details. Use your browser's back button to return to the previous step.",
         "data": {
           "host": "MQTT Broker Host",
           "port": "MQTT Broker Port",
@@ -28,6 +43,7 @@
       "cannot_resolve_host": "Cannot resolve hostname - check if the broker address is correct",
       "connection_refused": "Connection refused - check if the broker is running and the port is correct",
       "network_error": "Network error - broker may be unreachable or blocked by firewall",
+      "ha_mqtt_not_configured": "Home Assistant MQTT integration is not configured. Please configure MQTT first or uncheck the option to use a custom broker.",
       "unknown": "Unexpected error occurred"
     },
     "abort": {

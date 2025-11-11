@@ -7,8 +7,10 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_USERNAME, CONF_PASSWORD
 from homeassistant.core import callback
+from homeassistant.components import mqtt as ha_mqtt
 from .const import (
     DOMAIN,
+    CONF_USE_HA_MQTT,
     CONF_BROKER_TLS,
     CONF_API_SERVER,
     CONF_API_URL,
@@ -20,16 +22,44 @@ from .mqtt_gateway import MqttGateway
 
 _LOGGER = logging.getLogger(__name__)
 
-# User configuration schema - only MQTT settings for initial setup
-DATA_SCHEMA = vol.Schema(
-    {
-        vol.Required(CONF_HOST, default="localhost"): str,
-        vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
-        vol.Optional(CONF_USERNAME, default=""): str,
-        vol.Optional(CONF_PASSWORD, default=""): str,
-        vol.Optional(CONF_BROKER_TLS, default=False): bool,
-    }
-)
+# Step 1: Choose MQTT mode (using selector for radio buttons)
+from homeassistant.helpers import selector
+
+MQTT_MODE_SCHEMA = vol.Schema({
+    vol.Required(CONF_USE_HA_MQTT, default="ha_mqtt"): selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=["ha_mqtt", "custom"],
+            mode=selector.SelectSelectorMode.LIST,
+            translation_key="mqtt_mode",
+        )
+    ),
+})
+
+# Step 2: Custom broker configuration (only shown if custom mode selected)
+CUSTOM_BROKER_SCHEMA = vol.Schema({
+    vol.Required(CONF_HOST, default="localhost"): str,
+    vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
+    vol.Optional(CONF_USERNAME, default=""): str,
+    vol.Optional(CONF_PASSWORD, default=""): str,
+    vol.Optional(CONF_BROKER_TLS, default=False): bool,
+})
+
+
+async def validate_ha_mqtt(hass) -> None:
+    """
+    Verify that Home Assistant MQTT integration is configured and available.
+    Raises ConnectionError if MQTT integration is not ready.
+    """
+    try:
+        ready = await asyncio.wait_for(
+            ha_mqtt.async_wait_for_mqtt_client(hass),
+            timeout=5.0
+        )
+        if not ready:
+            raise ConnectionError("MQTT integration is not configured in Home Assistant")
+        _LOGGER.debug("HA MQTT integration is available and ready")
+    except asyncio.TimeoutError:
+        raise ConnectionError("Timeout waiting for Home Assistant MQTT integration")
 
 
 async def validate_mqtt_connection(host: str, port: int, username: str | None, password: str | None, tls: bool) -> None:
@@ -67,12 +97,52 @@ class SorelConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self):
+        """Initialize the config flow."""
+        self._use_ha_mqtt = True
+
     async def async_step_user(self, user_input=None):
+        """Step 1: Choose MQTT connection mode."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            # Basic validation: broker host must not be empty
-            if not user_input[CONF_HOST]:
+            mqtt_mode = user_input.get(CONF_USE_HA_MQTT, "ha_mqtt")
+            self._use_ha_mqtt = (mqtt_mode == "ha_mqtt")
+
+            if mqtt_mode == "ha_mqtt":
+                # User chose HA MQTT - validate and create entry
+                try:
+                    await validate_ha_mqtt(self.hass)
+
+                    return self.async_create_entry(
+                        title="Sorel Connect (HA MQTT)",
+                        data={CONF_USE_HA_MQTT: True},
+                    )
+
+                except ConnectionError as e:
+                    _LOGGER.error("HA MQTT validation failed: %s", e)
+                    errors["base"] = "ha_mqtt_not_configured"
+                except Exception as e:
+                    _LOGGER.exception("Unexpected error validating HA MQTT")
+                    errors["base"] = "unknown"
+            else:
+                # User chose custom broker - go to broker config step
+                return await self.async_step_broker()
+
+        # Show mode selection form
+        return self.async_show_form(
+            step_id="user",
+            data_schema=MQTT_MODE_SCHEMA,
+            errors=errors
+        )
+
+    async def async_step_broker(self, user_input=None):
+        """Step 2: Configure custom MQTT broker."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Validate broker connection
+            if not user_input.get(CONF_HOST):
                 errors["base"] = "invalid_host"
             else:
                 # Convert empty strings to None for optional credentials
@@ -80,7 +150,6 @@ class SorelConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 password = user_input.get(CONF_PASSWORD) or None
                 tls = bool(user_input.get(CONF_BROKER_TLS, False))
 
-                # Test MQTT connection before creating entry
                 try:
                     await validate_mqtt_connection(
                         host=user_input[CONF_HOST],
@@ -90,10 +159,12 @@ class SorelConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         tls=tls
                     )
 
-                    # Connection successful, create entry
+                    # Connection successful, create entry with full data
+                    # Add the use_ha_mqtt flag set to False
+                    data = {CONF_USE_HA_MQTT: False, **user_input}
                     return self.async_create_entry(
                         title=f"Sorel Connect ({user_input[CONF_HOST]}:{user_input[CONF_PORT]})",
-                        data=user_input,
+                        data=data,
                     )
 
                 except asyncio.TimeoutError:
@@ -121,8 +192,11 @@ class SorelConnectConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     _LOGGER.exception("Unexpected error during MQTT connection test")
                     errors["base"] = "unknown"
 
+        # Show broker configuration form
         return self.async_show_form(
-            step_id="user", data_schema=DATA_SCHEMA, errors=errors
+            step_id="broker",
+            data_schema=CUSTOM_BROKER_SCHEMA,
+            errors=errors
         )
 
     @staticmethod

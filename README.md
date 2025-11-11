@@ -35,6 +35,7 @@ If your device works with the official Sorel Connect mobile app or web interface
 ## Requirements
 
 - Home Assistant Core 2023.1 or later
+- **MQTT integration configured in Home Assistant** (recommended) OR access to an external MQTT broker
 - MQTT broker (e.g., Mosquitto) accessible to your Sorel devices
 
    **Authentication is required for Sorel devices to connect to the MQTT broker.**
@@ -42,15 +43,13 @@ If your device works with the official Sorel Connect mobile app or web interface
 
    If using the Mosquitto broker add-on, follow these steps:
    1. Stop the broker if it's running
-   2. Go to **Mosquitto broker** → **Konfiguration**
-   3. Add a users for your Sorel devices
-   4. Add a user for Home Assistant integration if you want to use authentication there
-   5. Save the configuration
-   6. Start the broker
+   2. Go to **Mosquitto broker** → **Configuration**
+   3. Add users for your Sorel devices
+   4. Save the configuration
+   5. Start the broker
+   6. Configure the MQTT integration in Home Assistant (**Settings** → **Devices & Services** → **Add Integration** → **MQTT**)
 
-   If you prefer not to use authentication for the integration, ensure your MQTT broker allows anonymous connections.
-
-   Instead of setting users in the mosquitto add-on, you can also add Homeassistant users. The add-on will automatically use those users.
+   Instead of setting users in the mosquitto add-on, you can also add Home Assistant users. The add-on will automatically use those users.
 
 - Sorel Smart device compatible with Sorel Connect
 - **Internet connection required**:
@@ -94,9 +93,28 @@ If your device works with the official Sorel Connect mobile app or web interface
 1. Go to **Settings** → **Devices & Services**
 2. Click **+ Add Integration**
 3. Search for "Sorel Connect"
-4. Follow the configuration steps:
+4. Choose your MQTT connection mode:
 
-#### MQTT Broker Settings
+#### MQTT Connection Modes
+
+The integration offers two ways to connect to your MQTT broker:
+
+##### Option 1: Use Home Assistant MQTT (Recommended)
+
+- **Simpler setup**: Uses your existing MQTT integration configuration
+- **Single connection**: Shares the MQTT connection with other integrations
+- **Automatic authentication**: No need to enter credentials again
+- **Prerequisite**: The MQTT integration must be configured first in Home Assistant
+
+Select **"Use Home Assistant MQTT (recommended)"** during setup.
+
+##### Option 2: Use Custom MQTT Broker (Advanced)
+
+- **Independent connection**: Direct connection to an external MQTT broker
+- **Multiple brokers**: Useful if you need to connect to a different broker than your main HA MQTT integration
+- **Custom settings**: Full control over host, port, TLS, and authentication
+
+Select **"Use custom MQTT broker"** and enter the following:
 
 - **Host**: MQTT broker hostname or IP (default: `localhost`)
 - **Port**: MQTT broker port (default: `1883`)
@@ -104,7 +122,9 @@ If your device works with the official Sorel Connect mobile app or web interface
 - **Password**: MQTT password (optional)
 - **Use TLS**: Enable TLS/SSL encryption (optional)
 
-#### API Settings
+#### API Settings (Advanced)
+
+API settings can be modified after setup via the integration's options:
 
 - **API Server**: Sorel metadata API server (default: pre-configured)
 - **API URL Template**: API endpoint template (default: pre-configured)
@@ -143,6 +163,9 @@ The integration supports multiple payload formats:
 ### Binary Sensors
 
 - **MQTT Connection Status**: Monitors the connection status to the MQTT broker
+  - Shows current connection state (Connected/Disconnected)
+  - Displays MQTT mode (HA MQTT or Custom Broker) in attributes
+  - For custom broker mode: shows broker host, port, and TLS settings
 - **Relay States**: Binary sensors for each relay showing on/off state
 
 ### Diagnostic Sensors (per device)
@@ -264,12 +287,27 @@ Available options:
 
 ## Troubleshooting
 
-### No devices discovered
+### MQTT Connection Issues
+
+**Using HA MQTT mode:**
+
+1. Verify the MQTT integration is configured: **Settings** → **Devices & Services** → **MQTT**
+2. Check the MQTT integration is connected to your broker
+3. Test MQTT with another integration or the MQTT developer tools
+
+**Using custom broker mode:**
 
 1. Verify your MQTT broker is running and accessible
+2. Check hostname, port, and credentials are correct
+3. Test connection with a tool like MQTT Explorer or mosquitto_sub
+
+### No devices discovered
+
+1. Verify MQTT connection is working (see above)
 2. Check that your Sorel device is publishing to the correct topics
-3. Enable debug logging (see below)
-4. Verify the topic prefix matches your device configuration
+3. Check the MQTT Connection Status binary sensor in Home Assistant
+4. Enable debug logging (see below)
+5. Verify the topic prefix matches your device configuration
 
 ### Missing sensors
 

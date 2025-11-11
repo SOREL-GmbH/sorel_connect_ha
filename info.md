@@ -11,7 +11,8 @@ Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant 
 ## What You Need
 
 - **Sorel Smart device** compatible with Sorel Connect (if it works with the Sorel Connect app, it should work here)
-- MQTT broker (Mosquitto, etc.) **Make sure to add users for your Sorel devices** by now they need to have a username/password configured
+- **MQTT integration configured in Home Assistant** (recommended) OR access to an external MQTT broker
+- MQTT broker (Mosquitto, etc.) **Make sure to add users for your Sorel devices** - they need to have a username/password configured
 - **Internet connection** for initial device setup (metadata is cached afterward for offline use)
 - Home Assistant 2023.1+
 
@@ -32,8 +33,11 @@ Monitor **Sorel Smart** heating and solar thermal controllers in Home Assistant 
 1. Add this repository to HACS as a custom repository
 2. Install "Sorel Connect" via HACS
 3. Restart Home Assistant
-4. Go to **Settings** → **Devices & Services** → **Add Integration** → "Sorel Connect"
-5. Enter your MQTT broker details (default host: `localhost`, port: `1883`)
+4. **(Recommended)** Configure the MQTT integration if not already done: **Settings** → **Devices & Services** → **Add Integration** → **MQTT**
+5. Go to **Settings** → **Devices & Services** → **Add Integration** → "Sorel Connect"
+6. Choose your MQTT connection mode:
+   - **Use Home Assistant MQTT (recommended)**: Simpler, uses your existing MQTT integration
+   - **Use custom MQTT broker (advanced)**: For external brokers or special configurations
 
 
 ## Quick Troubleshooting

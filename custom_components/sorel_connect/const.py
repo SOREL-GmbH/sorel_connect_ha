@@ -1,5 +1,6 @@
 DOMAIN = "sorel_connect"
 
+CONF_USE_HA_MQTT = "use_ha_mqtt"
 CONF_BROKER_HOST = "broker_host"
 CONF_BROKER_PORT = "broker_port"
 CONF_BROKER_USERNAME = "broker_username"
