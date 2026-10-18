@@ -4,7 +4,27 @@ This directory contains test scripts for the Sorel Connect integration.
 
 ## Current Test Scripts
 
-These are **manual test scripts** (not automated unit tests). They verify specific components of the integration by directly importing and testing the modules.
+### test_coordinator_format.py (automated)
+
+Regression tests for optional datapoint format metadata. Run from the repository root:
+
+```bash
+python3 -m unittest discover -s tests -p test_coordinator_format.py -v
+```
+
+These tests need only Python 3.10+ and its standard library. They load the actual
+coordinator, constants, and topic parser without running the integration setup.
+Home Assistant imports and sensor-type helpers, which are unrelated to these
+decoder tests, are stubbed temporarily while importing the coordinator.
+
+Coverage includes missing, null, and empty formats; valid mappings; unmapped
+values; malformed formats; and sensor error codes. The tests verify both decoded
+values and warning behavior. They do not replace testing in a running Home
+Assistant instance.
+
+### Manual scripts
+
+The following are **manual test scripts** (not automated unit tests). They verify specific components of the integration by directly importing and testing the modules.
 
 ### test_sensor_types.py
 
@@ -54,9 +74,9 @@ python verify_const_data.py
 - RELAY_MODES dictionary structure and field types
 - Data integrity and completeness
 
-## Running All Tests
+## Running the Manual Scripts
 
-**Note:** These scripts require Home Assistant dependencies to be installed, as they import from `homeassistant` modules. They are designed to run in a development environment.
+**Note:** These manual scripts require Home Assistant dependencies to be installed, as they import from `homeassistant` modules. They are designed to run in a development environment.
 
 From the `tests/` directory:
 

@@ -449,7 +449,7 @@ class Coordinator:
                 # Normal values: apply step multiplication
                 value = value * dp.get("step", 1)
 
-                if dp.get("format", 1) != "":
+                if dp.get("format"):
                     # if given the format is structured like {\r\n    \"0\": \"Off\",\r\n    \"1\": \"Daily\",\r\n    \"2\": \"Weekly\"\r\n}
                     try:
                         fmt = json.loads(dp.get("format"))
